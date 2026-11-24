@@ -15,6 +15,10 @@ enum DiagnosticLogTests {
         precondition(sanitize("DDAPPLOGIN confirm newSession=true path=/private sessionid=abc") == "session.loginConfirmed newSession=true")
         precondition(sanitize("DDCHAT open miss not-found\nDDSESSION sessionid present suppressed=false") == "chat.openFailed reason=not-found")
         precondition(sanitize("DDMSG layout=resizable") == "layout.messages layout=resizable")
+        precondition(sanitize("DDCALL err code=Optional(1) https://private.example/?sessionid=internal attempt=3")
+            == "network.webRequestFailed attempt=3")
+        precondition(sanitize("DDMSGVIDEO detail fail USER_ID: private diagnostic text") == "chat.sharedVideoFailed")
+        precondition(sanitize("DDSEND comment op=reply phase=web-ui-error text=private") == "network.commentSendFailed")
         for raw in ["DDAPPLOGIN baseline sessionid=secret", "DDCK export 9 sessionid=true", "DDCHAT tick=5 new=2 first=private message",
                     "DDDM shape message=private", "DDFEED idx=2 tab s=abc signed=true len=4 more=false", "DDIMG fail http=400 bytes=4secret"] {
             precondition(sanitize(raw) == nil, "Unsafe diagnostic event was accepted")
