@@ -216,12 +216,12 @@ struct DYSettingsScreen: View {
                     }
                     .accessibilityIdentifier("douyin.about.notes")
                     .sheet(isPresented: $showNotes) {
-                        DDReleaseNotesSheet()
+                        DDReleaseNotesSheet(mode: .whatsNew(DDUpdateChecker.currentVersion))
                     }
                     Button {
-                        UIApplication.shared.open(URL(string: "https://github.com/SOLHK/dy")!)
+                        UIApplication.shared.open(DDUpdateChecker.repoURL)
                     } label: {
-                        Label("项目仓库", systemImage: "chevron.left.forwardslash.chevron.right")
+                        Label("开源仓库", systemImage: "chevron.left.forwardslash.chevron.right")
                     }
                     .accessibilityIdentifier("douyin.about")
                 } header: {
@@ -370,7 +370,7 @@ enum DYSettingInfo: String, Identifiable {
         switch self {
         case .chrome: [("说明", "四种播放页布局：默认、简洁、极简、经典。只改按钮和信息怎么摆，不影响推荐和播放。")]
         case .ambient: [("说明", "视频没铺满屏幕时，四周的空白跟着画面颜色变化。分关 / 亮 / 中 / 暗 / 很暗；选「关」就是纯黑边。")]
-        case .launchMuted: [("开", "打开 App 时先静音，并提示「已静音播放」，你正在播放的音乐可以继续。"), ("关", "打开就带声音播放。")]
+        case .launchMuted: [("开", "每次打开 DouDuo 都先静音，并提示「已静音播放」；不会打断你正在放的音乐。"), ("关", "打开就带声音播放。")]
         case .danmaku: [("开", "视频上方 1/3 区域显示弹幕。"), ("关", "不显示弹幕，发弹幕仍在播放页菜单里。")]
         case .danmakuDensity: [("说明", "稀疏：最多 2 行、每秒 1 条；标准：4 行、每秒 2 条；密集：6 行、每秒 4 条。")]
         case .keywords: [("说明", "标题或话题标签里含有这个词就不推，例如屏蔽「美食」也会挡住 #美食推荐。只作用于推荐页，搜索、关注、作者主页不受影响。")]
@@ -386,7 +386,7 @@ enum DYSettingInfo: String, Identifiable {
         case .landscapeOnly: [("开", "手机横着拿或展开大屏时，推荐只放横屏视频。"), ("关（默认）", "横着看也按抖音推荐原顺序播放，竖屏视频会带黑边。")]
         case .portraitMix: [("开", "竖着看时推荐里约七成是竖屏视频（抖音网页推荐本身竖屏只有一到三成）。"), ("关（默认）", "按抖音推荐原顺序播放。")]
         case .dedupe: [("开", "10 秒内内容相同的弹幕只显示一次。"), ("关", "重复弹幕照常刷屏。")]
-        case .autoPiP: [("开", "离开 App 时，当前短视频尝试进入系统画中画（系统决定能否启动）。"), ("关（默认）", "离开就暂停，播放页菜单里开了「听书模式」时继续出声。")]
+        case .autoPiP: [("开", "离开 DouDuo 时，当前短视频尝试进入系统画中画（系统决定能否启动）。"), ("关（默认）", "离开就暂停；播放页菜单里开了「听书模式」时继续出声。")]
         case .replyKeyboard: [("开（默认）", "点一条评论回复它时，直接弹出键盘。"), ("关", "点评论只选中要回复的人，要再点输入框才弹键盘。")]
         case .webComment: [("开", "文字评论和回复填进抖音网页自己的评论框再点发送，和手动发一样，每条多等几秒；带图评论仍按原方式发。"), ("关（默认）", "直接调用接口发送，更快。")]
         case .streaming: [("开（默认）", "视频看到哪下到哪，划走就停；看完的自动存成完整文件，下次可离线播。两个省流量开关依赖它。"), ("关", "老办法：后面几条整条下载后再播，流量最多，省流量开关失效。一般不需要关。")]

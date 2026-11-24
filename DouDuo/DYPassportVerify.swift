@@ -121,6 +121,7 @@ enum DYPassportVerify {
             cfg.allowsInlineMediaPlayback = true
             cfg.mediaTypesRequiringUserActionForPlayback = .all
             cfg.userContentController.addUserScript(WKUserScript(source: DouyinBridge.composerNoMediaJS, injectionTime: .atDocumentStart, forMainFrameOnly: false))
+            DYLogoutBlock.install(in: cfg)
             web = WKWebView(frame: .zero, configuration: cfg)
             web.customUserAgent = DouyinWeb.userAgent
             web.navigationDelegate = self

@@ -22,40 +22,33 @@ struct DYAppLoginScreen: View {
     enum Mode { case code, qr }
     enum Field { case phone, code }
 
-    private var showsWeb: Bool { page.needsWeb || page.showsTrustPrompt }
-
     var body: some View {
         NavigationStack {
             ZStack {
-                // 验证和保存登录信息由用户在官方网页选择
+                // 网页一直在下面跑；要人机验证时把它露出来
                 DYLoginWebHost(page: page)
-                    .opacity(showsWeb ? 1 : 0.011)
-                    .allowsHitTesting(showsWeb)
-                    .accessibilityHidden(!showsWeb)
-                if !showsWeb {
+                    .opacity(page.needsWeb ? 1 : 0.011)
+                    .allowsHitTesting(page.needsWeb)
+                    .accessibilityHidden(!page.needsWeb)
+                if !page.needsWeb {
                     form
                         .background(Color.ddBackground)
                 }
             }
-            .navigationTitle(page.showsTrustPrompt ? "抖音登录成功" : page.needsWeb ? "抖音安全验证" : "登录抖音")
+            .navigationTitle(page.needsWeb ? "抖音安全验证" : "登录抖音")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("关闭", systemImage: "xmark") { dismiss() }.accessibilityIdentifier("douyin.login.close")
                 }
-                if page.showsTrustPrompt {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("完成") { dismiss() }
-                            .accessibilityIdentifier("douyin.login.done")
-                    }
-                } else if page.needsWeb {
+                if page.needsWeb {
                     ToolbarItem(placement: .confirmationAction) {
                         Button("回到登录") { page.needsWeb = false }
                     }
                 }
             }
         }
-        .onChange(of: page.loggedIn) { _, ok in if ok && !page.showsTrustPrompt { dismiss() } }
+        .onChange(of: page.loggedIn) { _, ok in if ok { dismiss() } }
         .onChange(of: page.askScan) { _, ask in if ask { mode = .qr } }
         // 登录页里换 cookie 是预期内的，登录守护别弹
         .onAppear { DYSessionWatch.shared.loginScreenOpen = true }
@@ -74,11 +67,12 @@ struct DYAppLoginScreen: View {
 
                 if mode == .code { codeForm } else { qrForm }
 
-                if page.finishingLogin {
+                if page.savingTrust {
                     HStack(spacing: 8) {
                         ProgressView().controlSize(.small)
-                        Text("正在完成登录…").font(.footnote).foregroundStyle(.secondary)
+                        Text("登录成功，正在保存登录信息…").font(.footnote).foregroundStyle(.secondary)
                     }
+                    .accessibilityIdentifier("douyin.login.savingTrust")
                 }
                 if let msg = page.message {
                     Text(msg).font(.footnote).foregroundStyle(theme.status.danger.color(for: scheme))
@@ -178,8 +172,8 @@ final class DYLoginPage: NSObject, ObservableObject, WKNavigationDelegate {
     @Published var busy = false
     @Published var countdown = 0
     @Published var loggedIn = false
-    @Published private(set) var finishingLogin = false
-    @Published private(set) var showsTrustPrompt = false
+    /// 已登录、正在等网页的「保存登录信息」弹框
+    @Published var savingTrust = false
     /// 网页弹了人机验证 / 二次验证：把网页那层露出来
     @Published var needsWeb = false
     /// 点了「登录」后网页要求扫码确认（新设备第一次登录常见）：界面切到扫码页
@@ -198,6 +192,7 @@ final class DYLoginPage: NSObject, ObservableObject, WKNavigationDelegate {
     override init() {
         let cfg = WKWebViewConfiguration()
         cfg.websiteDataStore = .default()   // 跟签名页 / 网页版共用登录态
+        DYTrustLogin.install(in: cfg)       // 登录成功后的「是否保存登录信息？」默认点「保存」
         DYKeyStateProbe.install(in: cfg, tag: "login")
         web = WKWebView(frame: CGRect(x: 0, y: 0, width: 420, height: 760), configuration: cfg)
         web.customUserAgent = DouyinWeb.userAgent
@@ -379,7 +374,7 @@ final class DYLoginPage: NSObject, ObservableObject, WKNavigationDelegate {
     /// 轮询和网页跳转会同时触发确认：同一时间只跑一份（以前两份并发，日志里确认/保存各记两遍）
     private var confirming = false
     private func confirmLogin() async {
-        guard !loggedIn, !confirming else { return }
+        guard !loggedIn, !savingTrust, !confirming else { return }
         confirming = true
         defer { confirming = false }
         var ok = await hasNewSession()
@@ -391,13 +386,11 @@ final class DYLoginPage: NSObject, ObservableObject, WKNavigationDelegate {
         DYLiveModel.log("DDAPPLOGIN confirm newSession=\(ok) path=\(web.url?.path ?? "-")")
         if ok {
             poll?.invalidate()
-            message = nil
-            busy = true
-            finishingLogin = true
-            showsTrustPrompt = await waitForTrustPrompt()
-            finishingLogin = false
-            busy = false
-            loggedIn = true
+            // 别马上关：登录成功后网页会弹「是否保存登录信息？（5）」，等脚本点完「保存」再关（最多 7 秒）
+            message = nil; busy = true; savingTrust = true
+            let clicked = await DYTrustLogin.waitClicked(in: web, seconds: 7)
+            DYLiveModel.log("DDTRUST login-page clicked=\(clicked) path=\(web.url?.path ?? "-")")
+            savingTrust = false; busy = false; loggedIn = true
             DYAccountStore.sessionDidChange()
         }
         else if web.url?.path.hasPrefix("/login_page") != true {
@@ -406,26 +399,6 @@ final class DYLoginPage: NSObject, ObservableObject, WKNavigationDelegate {
             message = "没登录上，请重新获取验证码再试"
             web.load(URLRequest(url: Self.url))
         }
-    }
-
-    /// 页面有时会在登录成功后询问是否信任设备。显示原网页，由用户选择。
-    private func waitForTrustPrompt() async -> Bool {
-        let script = #"""
-        (() => {
-          if (location.origin !== 'https://www.douyin.com') return false;
-          const button = document.querySelector('.trust-login-dialog-button-confirm')
-            || [...document.querySelectorAll('[class*="trust-login-menu"] button')]
-                 .find(element => element.textContent.trim() === '保存');
-          return !!button && button.getClientRects().length > 0
-            && getComputedStyle(button).visibility === 'visible';
-        })()
-        """#
-        let deadline = Date().addingTimeInterval(7)
-        while Date() < deadline {
-            if (try? await web.evaluateJavaScript(script)) as? Bool == true { return true }
-            try? await Task.sleep(for: .milliseconds(250))
-        }
-        return false
     }
 
     private func hasNewSession() async -> Bool {

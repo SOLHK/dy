@@ -24,7 +24,7 @@ final class DYAccountStore: ObservableObject {
 
     private static let listKey = "douduo_accounts_v1"
     private static let currentKey = "douduo_account_current_v1"
-    private static let service = "com.solhk.dy.accounts"
+    private static let service = "me.rrmm.douduo.accounts"
 
     init() {
         if let d = UserDefaults.standard.data(forKey: Self.listKey),
@@ -46,6 +46,10 @@ final class DYAccountStore: ObservableObject {
             accounts.append(DYSavedAccount(id: uid, name: name, avatar: nil, secUid: "sec\(uid)", savedAt: Date()))
         }
         persist()
+    }
+    /// 测试核对：当前 cookie 里的 sessionid
+    static func debugSessionValue() async -> String? {
+        await douyinCookies().first { $0.name == "sessionid" }?.value
     }
     #endif
 
@@ -82,6 +86,9 @@ final class DYAccountStore: ObservableObject {
         persist()
         Self.clearAccountCaches()
         DYLiveModel.log("DDACCOUNT switch uid=…\(account.id.suffix(4)) cookies=\(cookies.count)")
+        #if DEBUG
+        DYLiveModel.log("DDACCOUNT now sessionid=\(await Self.debugSessionValue() ?? "none")")
+        #endif
         return true
     }
 
@@ -93,6 +100,9 @@ final class DYAccountStore: ObservableObject {
         persist()
         Self.clearAccountCaches()
         DYLiveModel.log("DDACCOUNT sign-out n=\(accounts.count)")
+        #if DEBUG
+        DYLiveModel.log("DDACCOUNT now sessionid=\(await Self.debugSessionValue() ?? "none")")
+        #endif
     }
 
     /// 从列表里移除（连同存着的登录凭据）

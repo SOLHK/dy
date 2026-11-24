@@ -2,6 +2,8 @@
 
 基于 [DouDuo](https://github.com/81199000/DouDuo) 开发的第三方 iOS / iPadOS 客户端，支持 iOS / iPadOS 26.0 及以上。应用使用独立的图标和 Bundle ID `com.solhk.dy`，由 SOLHK 维护，与抖音官方无关联。
 
+当前用于真机对照测试，沿用 DouDuo 1.7.3 (129) 的应用逻辑和界面。
+
 SwiftUI 界面提供推荐、关注、搜索、收藏、评论和直播入口。播放器使用 AVPlayer，部分媒体由 VLCKit 播放。需要登录的功能使用应用内的抖音网页会话，实际可用性取决于平台支持和账号状态。数据处理见[隐私说明](PRIVACY.md)。
 
 ## 构建和安装

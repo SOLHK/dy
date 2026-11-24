@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compile the publication-region mapper and verify work metadata integration."""
+"""Compile production region code and execute bounded mock transport + JS/model tests."""
 import json
 import shutil
 import subprocess
@@ -10,15 +10,15 @@ from test_video_metadata import map_one, SOURCE
 ROOT = Path(__file__).resolve().parents[1]
 
 class PublicationRegionTests(unittest.TestCase):
-    def test_production_region_mapping(self):
+    def test_production_region_mapping_and_client(self):
         with tempfile.TemporaryDirectory(prefix='douduo-region-') as tmp:
             tmp = Path(tmp)
             exe = tmp / 'RegionTests'
             shutil.copy2(ROOT/'DouDuo/DouyinPublicationRegions.json', tmp/'DouyinPublicationRegions.json')
             subprocess.run(['swiftc', '-swift-version', '5', '-parse-as-library',
-                str(ROOT/'DouDuo/DYPublicationRegion.swift'),
+                str(ROOT/'DouDuo/DYPublicationRegion.swift'), str(ROOT/'DouDuo/DYPublicationRegionClient.swift'),
                 str(ROOT/'scripts/fixtures/publication-region-tests.swift'), '-o', str(exe)], check=True, timeout=120)
-            subprocess.run([str(exe), str(ROOT/'DouDuo/DouyinPublicationRegions.json')], check=True, timeout=60)
+            subprocess.run([str(exe), str(ROOT/'DouDuo/DouyinPublicationRegions.json'), str(tmp/'cache.json')], check=True, timeout=60)
 
     def test_shared_mapper_and_legacy_model(self):
         raw = dict(aweme_id='123', desc='公开作品', video={}, author={'nickname':'sample'}, statistics={},
@@ -54,9 +54,17 @@ print("PASS old sessions preserve metadata and decode missing regions")
         settings = (ROOT/'DouDuo/DYSettingsScreen.swift').read_text()
         self.assertNotIn('显示国内发布地', settings)
         view = (ROOT/'DouDuo/DYWorkMetadataText.swift').read_text()
-        self.assertIn('DYPublicationRegion.name(for: item.publicationCityCode, country: item.publicationCountry)', view)
-        self.assertEqual(SOURCE.read_text().count('DYWorkMetadataText(item: item)'), 2)
-        self.assertIn('DYWorkMetadataText(item: aweme)', (ROOT/'DouDuo/DouyinExpandableTitle.swift').read_text())
+        self.assertIn('guard place == nil',view)
+        self.assertNotIn('@AppStorage',view)
+        self.assertIn('DYPublicationRegionClient.shared.cached(item.id)',view)
+        self.assertIn('guard !Task.isCancelled',view)
+        self.assertIn('recovered?.id == item.id',view)
+        self.assertIn('resolved: stored != nil || cached != nil',view)
+        host = (ROOT/'DouDuo/DYRecommendFeedHost.swift').read_text()
+        self.assertIn('ahead.prefix(2)',host)
+        self.assertIn('DYPublicationRegionClient.shared.prefetch(regionIDs)',host)
+        self.assertEqual(SOURCE.read_text().count('DYWorkMetadataText(item: item, active: isCurrent)'),2)
+        self.assertIn('DYWorkMetadataText(item: aweme, active: true)',(ROOT/'DouDuo/DouyinExpandableTitle.swift').read_text())
         # 只确认版本号键存在且是 x.y 或 x.y.z（带不带引号都行），不写死某个版本，升版本时不用再改这条
         import re
         self.assertRegex((ROOT/'project.yml').read_text(), r'MARKETING_VERSION:\s*"?\d+\.\d+(\.\d+)?"?')

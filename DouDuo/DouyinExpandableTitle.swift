@@ -248,7 +248,7 @@ struct DYVideoCaptionHeader: View {
                     searchHashtag(name)
                     return .handled
                 })
-            DYWorkMetadataText(item: aweme)
+            DYWorkMetadataText(item: aweme, active: true)
                 .font(.caption).foregroundStyle(.themeTextSecondary)
         }
         .foregroundStyle(.themeTextPrimary)

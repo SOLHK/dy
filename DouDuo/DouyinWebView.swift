@@ -559,11 +559,14 @@ struct DouyinWebContainer: UIViewRepresentable {
             WKUserScript(source: DouyinWeb.bootstrapJS, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         cfg.userContentController.addUserScript(
             WKUserScript(source: DouyinWeb.bootstrapJS, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
+        DYTrustLogin.install(in: cfg)   // 网页版里登录后弹「是否保存登录信息？」也默认点「保存」
         // 聊天页点分享视频 → 抽 aweme_id 发给 App（只在 /chat 页生效）
         cfg.userContentController.addUserScript(
             WKUserScript(source: ddVideoTapHookJS, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         // 信息里的图片本地缓存：ddimg:// 由 App 供图，键只认路径（签名变化也能命中）
         if isChat {
+            // 实证：后台私信页开页 2 秒内自己发了 passport/web/logout（11-18 19:04:39），App 原生没有调用登出
+            DYLogoutBlock.install(in: cfg)
             cfg.setURLSchemeHandler(DYChatImageSchemeHandler(), forURLScheme: DYChatImageCache.scheme)
             cfg.userContentController.addUserScript(
                 WKUserScript(source: DYChatImageRewrite.script, injectionTime: .atDocumentEnd, forMainFrameOnly: true))

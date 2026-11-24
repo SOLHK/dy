@@ -10,7 +10,7 @@ def mapped_samples():
     script = r'''
 const fs=require('fs'),vm=require('vm');
 const s=fs.readFileSync(process.argv[1],'utf8');
-const js=s.match(/static let requestJS = #"""\r?\n([\s\S]*?)\r?\n\s*"""#/)[1];
+const js=s.match(/static let requestJS = #"""\n([\s\S]*?)\n\s*"""#/)[1];
 const rows=JSON.parse(fs.readFileSync(process.argv[2],'utf8')).samples;
 const out=rows.map(a=>vm.runInNewContext(js+'\nmapA(a)',{a,URLSearchParams}));
 console.log(JSON.stringify(out));
@@ -22,7 +22,7 @@ def map_one(a):
     script = r'''
 const fs=require('fs'),vm=require('vm');
 const s=fs.readFileSync(process.argv[1],'utf8');
-const js=s.match(/static let requestJS = #"""\r?\n([\s\S]*?)\r?\n\s*"""#/)[1];
+const js=s.match(/static let requestJS = #"""\n([\s\S]*?)\n\s*"""#/)[1];
 const a=JSON.parse(process.argv[2]);
 console.log(JSON.stringify(vm.runInNewContext(js+'\nmapA(a)',{a,URLSearchParams})));
 '''

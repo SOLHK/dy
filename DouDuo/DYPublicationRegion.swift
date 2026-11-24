@@ -20,9 +20,9 @@ enum DYPublicationRegion {
         return names[code]
     }
 
-    static func metadata(_ original: String?, place: String?) -> String? {
-        guard let place else { return original }
-        let region = "发布地：" + place
-        return original.map { $0 + " · " + region } ?? region
+    static func metadata(_ original: String?, place: String?, resolved: Bool = true) -> String? {
+        let showRegion = place != nil || resolved
+        let parts = [original, showRegion ? "发布地：" + (place ?? "未知") : nil].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }

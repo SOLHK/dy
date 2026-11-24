@@ -21,10 +21,6 @@ struct DDTheme {
         let onMedia = DDColor(.white)
         let onMediaSecondary = DDColor(.white.opacity(0.72))
         let chromeFill = DDColor(.black.opacity(0.35))
-        let channelBar = Color(red: 26 / 255, green: 35 / 255, blue: 56 / 255)
-        let channelTab = Color(red: 46 / 255, green: 59 / 255, blue: 86 / 255)
-        let channelPaper = Color(red: 246 / 255, green: 242 / 255, blue: 234 / 255)
-        let channelAccent = Color(red: 242 / 255, green: 193 / 255, blue: 150 / 255)
         // Optical calibration from the owner's build84 screenshot: signal x=1215,
         // rail x=1223, 54pt capsule spans 73px. 8 * 54 / 73 ≈ 6pt leading.
         // This is not the system column width; runtime geometry still determines that.

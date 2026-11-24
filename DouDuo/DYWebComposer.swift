@@ -39,6 +39,8 @@ final class DYWebComposer: NSObject, WKNavigationDelegate {
         cfg.allowsInlineMediaPlayback = true
         cfg.allowsPictureInPictureMediaPlayback = false
         cfg.userContentController.addUserScript(WKUserScript(source: DouyinBridge.composerNoMediaJS, injectionTime: .atDocumentStart, forMainFrameOnly: false))
+        DYTrustLogin.install(in: cfg)
+        DYLogoutBlock.install(in: cfg)
         DYKeyStateProbe.install(in: cfg, tag: "composer")
         // 桌面宽度：抖音视频详情页在宽屏下评论区常驻右侧，评论框一直在
         let w = WKWebView(frame: CGRect(x: 0, y: 0, width: 1280, height: 860), configuration: cfg)

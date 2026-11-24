@@ -302,6 +302,8 @@ final class DouyinBridge: NSObject, ObservableObject, WKNavigationDelegate {
         cfg.allowsInlineMediaPlayback = true
         cfg.allowsPictureInPictureMediaPlayback = false
         cfg.userContentController.addUserScript(WKUserScript(source: Self.noMediaJS, injectionTime: .atDocumentStart, forMainFrameOnly: false))
+        DYTrustLogin.install(in: cfg)   // 签名页上弹「是否保存登录信息？」也默认点「保存」
+        DYLogoutBlock.install(in: cfg)  // 后台签名页无人操作，不许它自己调抖音登出
         DYKeyStateProbe.install(in: cfg, tag: "signer")
         cfg.userContentController.addUserScript(WKUserScript(source: Self.beatWatchJS, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         web = WKWebView(frame: CGRect(x: 0, y: 0, width: 1200, height: 800), configuration: cfg)
@@ -2189,6 +2191,7 @@ struct DYUpstreamFeedScreen: DYRecommendFeedHost {
         }
         .modifier(DYDMBannerModifier(messagesVisible: showMessages, openMessages: { showMessages = true }))
         // 启动查新版本 / 刚升级完显示一次本次更新内容
+        .modifier(DDReleaseNotesModifier())
     }
 
     @ViewBuilder
@@ -2349,12 +2352,15 @@ struct DYUpstreamFeedScreen: DYRecommendFeedHost {
 
     }
 
-    /// 深靛色频道栏将内容频道和账号入口放在同一行，窄屏优先保留触摸区。
+    /// 顶部一排：左菜单，中间 关注/推荐/直播，右边 搜索 / 我的
+    /// 顶栏：只留「关注 / 推荐 / 直播」三个纯文字页签，不用胶囊，与状态栏时间/信号同一行。
+    /// 自适应仅收紧间距；消息与头像入口始终保留最小触摸区。
     private var topBar: some View {
         ViewThatFits(in: .horizontal) {
-            topBarRow(spacing: topNudge > 0 ? 3 : 8, hPad: 10, showsMark: true)
-            topBarRow(spacing: 3, hPad: 8)
-            topBarRow(spacing: 0, hPad: 4)
+            topBarRow(spacing: topNudge > 0 ? 5 : 14, hPad: 16)
+            topBarRow(spacing: 0, hPad: 10)
+            topBarRow(spacing: 0, hPad: 8)
+            topBarRow(spacing: 0, hPad: 5)
         }
         .themeShadow(.mediaLabel)
         .frame(maxWidth: .infinity, alignment: .center)
@@ -2367,45 +2373,53 @@ struct DYUpstreamFeedScreen: DYRecommendFeedHost {
         .padding(.top, hSize == .regular ? 23 : 76)
     }
 
-    private func topBarRow(spacing: CGFloat, hPad: CGFloat, showsMark: Bool = false) -> some View {
+    private func topBarRow(spacing: CGFloat, hPad: CGFloat) -> some View {
+        // 触摸区左右各扩 hPad、上下各扩 14（图标与字号不动）
         HStack(spacing: spacing) {
-            if showsMark {
-                Image(systemName: "play.rectangle.on.rectangle")
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(theme.media.channelAccent)
-                    .padding(.horizontal, 8)
-                    .accessibilityHidden(true)
-            }
             ForEach(DYTab.allCases, id: \.self) { t in
                 Button { tapChannel(t, switchTab: selectTab) } label: {
-                    Text(t.title)
-                        .font(.subheadline.weight(tab == t ? .semibold : .medium))
-                        .foregroundStyle(tab == t ? theme.media.channelAccent : theme.media.channelPaper)
-                        .lineLimit(1).fixedSize()
-                        .padding(.horizontal, hPad)
-                        .frame(minWidth: 44, minHeight: 44)
-                        .background(tab == t ? theme.media.channelTab : .clear, in: RoundedRectangle(cornerRadius: 10))
-                        .contentShape(Rectangle())
+                    VStack(spacing: 3) {
+                        Text(t.title)
+                            .font(.headline.weight(tab == t ? .bold : .medium))
+                            .foregroundStyle(theme.media.onMedia.color(for: scheme).opacity(tab == t ? 1 : 0.62))
+                            .lineLimit(1).fixedSize()
+                        Capsule()
+                            .fill(theme.media.onMedia.color(for: scheme))
+                            .frame(width: 16, height: 3)
+                            .opacity(tab == t ? 1 : 0)
+                    }
+                    // 文字本身小，撑开触摸区，避免点不中/误判成下拉
+                    .padding(.horizontal, hPad)
+                    .padding(.vertical, 14)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityAddTraits(tab == t ? .isSelected : [])
                 .accessibilityIdentifier("douyin.channel.\(t == .follow ? "follow" : t == .recommend ? "recommend" : "live")")
                 .accessibilityValue(t == .recommend && refreshing ? "正在刷新" : tab == t ? "已选择" : "")
             }
+            // 「信息」：带字的入口（老板 2026-11-19 要加回来），跟 tab 同款字体；未读红点独立显示
             Button { showMessages = true } label: {
-                Image(systemName: "bubble.left.and.bubble.right")
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(theme.media.channelPaper)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-                    .overlay(alignment: .topTrailing) {
-                        if noticeUnread > 0 {
-                            Circle().fill(theme.media.channelAccent)
-                                .frame(width: 7, height: 7)
-                                .offset(x: -5, y: 8)
-                                .allowsHitTesting(false)
-                        }
+                // 跟左边页签同一结构（文字 + 3pt 下划线位，这里不显示）：页签文字被下划线顶高了 3pt，
+                // 「信息」只有文字就会比「直播」低一截（老板 2026-11-21 截图）
+                VStack(spacing: 3) {
+                    Text("信息")
+                        .font(.headline.weight(.medium))
+                        .foregroundStyle(theme.media.onMedia.color(for: scheme).opacity(0.62))
+                        .lineLimit(1).fixedSize()
+                    Capsule().frame(width: 16, height: 3).opacity(0)
+                }
+                .padding(.horizontal, hPad)
+                .padding(.vertical, 14)
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
+                .overlay(alignment: .topTrailing) {
+                    if noticeUnread > 0 {
+                        Circle().fill(theme.status.danger.color(for: scheme))
+                            .frame(width: 7, height: 7)
+                            .offset(x: -(hPad - 2), y: 10)
+                            .allowsHitTesting(false)
                     }
+                }
             }
             .buttonStyle(.plain)
             .accessibilityLabel("信息")
@@ -2419,24 +2433,19 @@ struct DYUpstreamFeedScreen: DYRecommendFeedHost {
                     } placeholder: {
                         Image(systemName: "person.crop.circle")
                             .font(.system(size: 19))
-                            .foregroundStyle(theme.media.channelPaper)
+                            .foregroundStyle(theme.media.onMedia.color(for: scheme).opacity(0.62))
                     }
                     .frame(width: 22, height: 22)
                     .clipShape(Circle())
                 }
-                .frame(width: 44, height: 44)
+                .padding(.horizontal, max(hPad - 2, 4))
+                .padding(.vertical, 12)
+                .frame(minWidth: 44, minHeight: 44)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("我的")
             .accessibilityIdentifier("douyin.mine.top")
-        }
-        .padding(4)
-        .background(theme.media.channelBar, in: RoundedRectangle(cornerRadius: 14))
-        .overlay {
-            RoundedRectangle(cornerRadius: 14)
-                .strokeBorder(theme.media.channelPaper.opacity(0.15))
-                .allowsHitTesting(false)
         }
         .fixedSize()
     }
@@ -3413,6 +3422,7 @@ struct DYClassicFeedScreen: DYRecommendFeedHost {
         }
         .modifier(DYDMBannerModifier(messagesVisible: showMessages, openMessages: { showMessages = true }))
         // 启动查新版本 / 刚升级完显示一次本次更新内容
+        .modifier(DDReleaseNotesModifier())
     }
 
     private var systemTabs: some View {
@@ -3806,23 +3816,20 @@ struct DYClassicFeedScreen: DYRecommendFeedHost {
         HStack(spacing: 14) {
             ForEach(DYClassicChannelDrag.order, id: \.self) { channel in
                 Button { tapChannel(channel) } label: {
-                    Text(channel.title)
-                        .font(.subheadline.weight(tab == channel ? .semibold : .medium))
-                        .foregroundStyle(tab == channel ? theme.media.channelAccent : theme.media.channelPaper)
-                        .padding(.horizontal, 7)
-                        .frame(minWidth: 44, minHeight: 44)
-                        .background(tab == channel ? theme.media.channelTab : .clear, in: RoundedRectangle(cornerRadius: 10))
-                        .contentShape(Rectangle())
-                        .accessibilityIdentifier("douyin.channel.\(channel == .follow ? "follow" : channel == .recommend ? "recommend" : "live")")
+                    VStack(spacing: 3) {
+                        Text(channel.title).font(.headline.weight(tab == channel ? .bold : .medium))
+                            .foregroundStyle(.white.opacity(tab == channel ? 1 : 0.62))
+                        Capsule().fill(.white).frame(width: 16, height: 3)
+                            .opacity(tab == channel ? 1 : 0)
+                    }
+                    .frame(minHeight: 44).contentShape(Rectangle())
+                    .accessibilityIdentifier("douyin.channel.\(channel == .follow ? "follow" : channel == .recommend ? "recommend" : "live")")
                 }
                 .buttonStyle(.plain)
-                .accessibilityAddTraits(tab == channel ? .isSelected : [])
                 .accessibilityValue(channel == .recommend && refreshing ? "正在刷新" : tab == channel ? "已选择" : "")
                 .accessibilityHint(channel == .recommend && tab == .recommend ? "再次点击刷新推荐" : "切换频道")
             }
         }
-        .padding(3)
-        .background(theme.media.channelBar, in: RoundedRectangle(cornerRadius: 14))
         .fixedSize(horizontal: true, vertical: false)
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .named("douduo.feed")) } action: { topChrome = $0 }
         .themeShadow(.mediaLabel)
@@ -4225,7 +4232,7 @@ struct DYUpstreamVideoPage: View {
                 .modifier(DYHoldBoost(control: boost))
                 .accessibilityIdentifier("douyin.author")
             }
-            DYWorkMetadataText(item: item)
+            DYWorkMetadataText(item: item, active: isCurrent)
                 .font(.subheadline)
                 .foregroundStyle(theme.media.onMediaSecondary.color(for: scheme))
                 .lineLimit(2)
@@ -4717,7 +4724,7 @@ struct DYClassicVideoPage: View {
                                   secondary: fg.opacity(0.7), hashtagNames: item.hashtagNames ?? [],
                                   onExpand: expandVideoCaption.map { open in { open(item) } })
             }
-            DYWorkMetadataText(item: item)
+            DYWorkMetadataText(item: item, active: isCurrent)
                 .font(.caption2.weight(.regular))
                 .foregroundStyle(fg.opacity(0.62))
                 .lineLimit(2).fixedSize(horizontal: false, vertical: true)

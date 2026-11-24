@@ -86,6 +86,8 @@ final class DYUploadPage: NSObject, ObservableObject, WKNavigationDelegate, WKUI
         cfg.websiteDataStore = .default()          // 跟签名页 / 登录页共用登录态
         cfg.allowsInlineMediaPlayback = true       // 上传后的预览视频就地播放，不全屏接管
         cfg.userContentController.addUserScript(WKUserScript(source: Self.fitJS, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        DYTrustLogin.install(in: cfg)              // 创作者中心偶尔要再登一次：「保存登录信息」默认点保存
+        DYLogoutBlock.install(in: cfg)             // 页面无人操作时自己去登出会作废凭据，拦掉
         web = WKWebView(frame: .zero, configuration: cfg)
         web.customUserAgent = DouyinWeb.userAgent  // 电脑版 UA：手机 UA 会被导去「下载抖音 App」
         web.allowsBackForwardNavigationGestures = true
