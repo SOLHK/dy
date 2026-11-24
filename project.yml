@@ -1,0 +1,94 @@
+name: DouDuo
+options:
+  bundleIdPrefix: com.solhk
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+packages:
+  VLCKitSPM:
+    path: Vendor/VLCKit
+settings:
+  base:
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+    DEVELOPMENT_TEAM: ""
+targets:
+  DouDuo:
+    type: application
+    platform: iOS
+    sources:
+      - path: DouDuo
+    dependencies:
+      - package: VLCKitSPM
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.solhk.dy
+        PRODUCT_NAME: DouDuo
+        INFOPLIST_KEY_CFBundleDisplayName: 抖音折页
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
+        INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads: YES
+        INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: 保存视频和图集到相册
+        INFOPLIST_KEY_NSCameraUsageDescription: 发布作品时拍摄视频或照片
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: 发布作品时录制视频的声音
+        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: 发布作品时从相册选择视频或图片
+    info:
+      path: DouDuo/Info.plist
+      properties:
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        # 后台播放：默认仍是切后台就停声；只有「更多」菜单里打开「后台播放」才会继续响（代码里按开关判断）
+        UIBackgroundModes: [audio]
+        # ProMotion：iPhone 默认把 App 限制在 60Hz，必须声明这一项才能跑 120Hz（弹幕滚动、翻页更顺）
+        CADisableMinimumFrameDurationOnPhone: true
+  DouDuoUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: DouDuoUITests
+    dependencies:
+      - target: DouDuo
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.solhk.dy.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: DouDuo
+  DouDuoVideoFitTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: DouDuo/DYAutoPiP.swift
+      - path: DouDuo/DYVideoFit.swift
+      - path: DouDuo/DYShareLinkParse.swift
+      - path: DouDuo/DYKeyStateProbe.swift
+      - path: DouDuoTests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.solhk.dy.videofit.tests
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  DouDuo:
+    build:
+      targets:
+        DouDuo: all
+        DouDuoUITests: [test]
+    test:
+      targets:
+        - DouDuoUITests
+  DouDuoVideoFitTests:
+    build:
+      targets:
+        DouDuoVideoFitTests: [test]
+    test:
+      targets:
+        - DouDuoVideoFitTests

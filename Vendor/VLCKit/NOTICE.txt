@@ -1,0 +1,20 @@
+This app uses MobileVLCKit 3.6.0, by the VideoLAN and VLCKit contributors,
+and its bundled libVLC, by the VideoLAN and VLC contributors. MobileVLCKit
+and libVLC are provided under the GNU Lesser General Public License version
+2.1 or later. A copy of version 2.1 is provided in COPYING.LGPL-2.1.
+
+The source, build script and VLC patches for this MobileVLCKit version are at:
+https://github.com/videolan/vlckit/tree/c73b779f2d1e3d3c1598a27811679ce2c1a005db
+
+The corresponding VLC source used by that build is at:
+https://github.com/videolan/vlc/tree/dd8bfdbabe8ae3974ca3864ad3125879f523e3a2
+
+The MobileVLCKit binary comes from VideoLAN's 3.6.0 distribution and is
+repackaged as an XCFramework by vlckit-spm without changes to the source:
+https://download.videolan.org/pub/cocoapods/prod/MobileVLCKit-3.6.0-c73b779f-dd8bfdba.tar.xz
+https://github.com/tylerjonesio/vlckit-spm/releases/tag/3.6.0
+
+MobileVLCKit is linked dynamically. You may build a modified, compatible
+arm64 MobileVLCKit.framework, replace the copy in the app's Frameworks
+directory, and sign the modified app for use on your device. You may also
+build this app from source with the modified XCFramework in Vendor/VLCKit.

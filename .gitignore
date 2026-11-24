@@ -1,0 +1,32 @@
+build/
+DerivedData/
+*.xcarchive
+*.ipa
+xcuserdata/
+.DS_Store
+Vendor/VLCKit/VLCKit-all.xcframework/
+Vendor/VLCKit/*.zip
+release.local.sh
+att*/
+*.xcresult/
+
+# Local binary dependency may be a symlink during development.
+Vendor/VLCKit/VLCKit-all.xcframework
+
+# Local Python test bytecode.
+__pycache__/
+
+# Local signing credentials and machine-specific configuration.
+*.p12
+*.p8
+*.cer
+*.mobileprovision
+*.provisionprofile
+*.pem
+*.key
+*.local.xcconfig
+Local.xcconfig
+.env
+.env.*
+!.env.example
+*.dl_secret

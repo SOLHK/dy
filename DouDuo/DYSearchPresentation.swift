@@ -1,0 +1,218 @@
+import SwiftUI
+
+/// Owned by the video host so moving between displays keeps the query and results.
+@Observable @MainActor
+final class DYSearchSession: Identifiable {
+    let id = UUID()
+    let initialQuery: String
+    var keyword = ""
+    var suggestions: [DYSug] = []
+    var hot: [DYHot] = []
+    var model: DYPagedModel?
+    var lastRun = ""
+    var initialized = false
+    // Keep the host suspended through the result player's dismissal animation.
+    var presentsVideo = false
+
+    init(query: String = "") { initialQuery = query }
+
+    static func transition(_ update: () -> Void) {
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction, update)
+    }
+}
+
+struct DYSearchPresentation: ViewModifier {
+    let bridge: DouyinBridge
+    @Binding var session: DYSearchSession?
+    @Binding var isSplit: Bool
+    var onOpen: () -> Void = {}
+    @State private var allowsSplit = false
+    @State private var measuredSplit = false
+
+    private var split: Bool { allowsSplit && session != nil }
+    private var fullScreen: Binding<Bool> {
+        Binding(get: { session != nil && !allowsSplit }, set: { visible in
+            if !visible && !allowsSplit { session = nil }
+        })
+    }
+
+    func body(content: Content) -> some View {
+        // Keep the video in the same position in the view tree while resizing.
+        GeometryReader { geometry in
+            HStack(spacing: 0) {
+                content
+                    .frame(width: split ? geometry.size.width / 2 : geometry.size.width,
+                           height: geometry.size.height)
+                    .environment(\.dySearchHashtag, { openSearch("#" + $0) })
+                    .environment(\.dyOpenSearch, openSearch)
+                    .environment(\.dySearchPresented, session != nil)
+                    .environment(\.dySearchCoversVideo, session != nil && (!split || session?.presentsVideo == true))
+                    .accessibilityHidden(session != nil && !split)
+                    .allowsHitTesting(session == nil || split)
+                if split, let session {
+                    search(session)
+                        .environment(\.dySearchInSplitPane, true)
+                        .frame(width: geometry.size.width / 2, height: geometry.size.height)
+                        .accessibilityIdentifier("douyin.search.pane")
+                }
+            }
+            .overlay(alignment: .leading) {
+                if split {
+                    Rectangle().fill(Color.ddSeparator).frame(width: 1)
+                        .offset(x: geometry.size.width / 2 - 0.5)
+                        .allowsHitTesting(false)
+                        .accessibilityLabel("视频与搜索分界线")
+                        .accessibilityIdentifier("douyin.search.divider")
+                }
+            }
+        }
+        // Both halves include their own chrome; system sidebars never shift the midpoint.
+        // 只在左右分栏时忽略水平安全区。不分栏时必须把系统侧栏宽度传下去，
+        // 否则推荐流按钮栏/模块按钮读到 0，不再对齐右侧信号栏（冷启动必现）。
+        .ignoresSafeArea(.container, edges: split ? .horizontal : [])
+        .background {
+            GeometryReader { proxy in
+                Color.clear
+                    .onGeometryChange(for: Bool.self) { geometry in
+                        DYDuoMetrics.isDuoHardware && geometry.size.width > geometry.size.height
+                            && geometry.size.width >= 700 && geometry.size.height >= 600
+                    } action: { measuredSplit = $0 }
+            }
+            // The keyboard must not turn a portrait search into a landscape split.
+            .ignoresSafeArea(.keyboard)
+        }
+        // Moving search between its pane and cover would otherwise dismiss a
+        // result player presented by that search view.
+        .onChange(of: measuredSplit, initial: true) { _, measured in
+            if session?.presentsVideo != true { allowsSplit = measured }
+        }
+        .onChange(of: session?.presentsVideo == true) { _, playing in
+            if !playing { allowsSplit = measuredSplit }
+        }
+        // Publish the available layout before opening search, so the video does
+        // not briefly deactivate/reactivate and lose a user's paused state.
+        .onChange(of: allowsSplit, initial: true) { _, value in isSplit = value }
+        .fullScreenCover(isPresented: fullScreen) {
+            if let session { search(session) }
+        }
+        #if DEBUG
+        .overlay(alignment: .topLeading) { DYSearchPlaybackProbeView() }
+        #endif
+    }
+
+    private func openSearch(_ query: String) {
+        DYSearchSession.transition {
+            onOpen()
+            session = DYSearchSession(query: query)
+        }
+    }
+
+    private func search(_ value: DYSearchSession) -> some View {
+        DYRelatedSearchScreen(bridge: bridge, word: value.initialQuery,
+                              session: value, onClose: { DYSearchSession.transition { session = nil } })
+            .id(value.id)
+    }
+}
+
+extension EnvironmentValues {
+    @Entry var dySearchCoversVideo = false
+    @Entry var dySearchPresented = false
+    @Entry var dyOpenSearch: ((String) -> Void)? = nil
+    /// 搜索在 Duo 内屏左右分栏的右半屏：左缘是分界线，不做边缘返回
+    @Entry var dySearchInSplitPane = false
+}
+
+/// The system places this independent item in Duo's native vertical toolbar.
+struct DYSearchBackToolbar: ViewModifier {
+    let onBack: () -> Void
+
+    func body(content: Content) -> some View {
+        content.toolbar {
+            if #available(iOS 27.1, *) {
+                ToolbarItem(placement: .primaryAction) { back }
+                    .axisBehavior(.verticalPreferred)
+                    .visibilityPriority(.high)
+            } else {
+                ToolbarItem(placement: .cancellationAction) { back }
+            }
+        }
+    }
+
+    private var back: some View {
+        Button("返回", systemImage: "chevron.backward", action: onBack)
+            .labelStyle(.iconOnly)
+            .foregroundStyle(.primary)
+            .frame(minWidth: 44, minHeight: 44)
+            .accessibilityIdentifier("douyin.search.back")
+    }
+}
+
+struct DYHotSearchRow: View {
+    let item: DYHot
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.colorScheme) private var scheme
+    @ScaledMetric(relativeTo: .footnote) private var badgeSize: CGFloat = 24
+
+    private var rank: Int { item.pos ?? 0 }
+    private var accent: Color {
+        switch rank {
+        case 0: Color(red: 0.32, green: 0.53, blue: 1)
+        case 1: Color(red: 1, green: 0.64, blue: 0.08)
+        case 2: Color(red: 0.77, green: 0.78, blue: 0.84)
+        case 3: Color(red: 0.87, green: 0.49, blue: 0.39)
+        default: .secondary
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ZStack {
+                if (1...3).contains(rank) {
+                    Image(systemName: "hexagon.fill")
+                        .resizable().scaledToFit()
+                        .foregroundStyle(LinearGradient(colors: [accent.mix(with: .white, by: 0.4), accent],
+                                                        startPoint: .topLeading, endPoint: .bottomTrailing))
+                    Text(rank, format: .number).font(.footnote.bold().italic()).foregroundStyle(.white)
+                } else if rank <= 0 {
+                    Image(systemName: "arrow.up.to.line").font(.footnote.bold()).foregroundStyle(accent)
+                } else {
+                    Text(rank, format: .number).font(.footnote.bold()).foregroundStyle(accent)
+                }
+            }
+            .frame(width: badgeSize, height: badgeSize)
+            .accessibilityHidden(true)
+            Text(item.word).font(.footnote).foregroundStyle(.primary)
+                .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if item.hot > 0 {
+                Text(heat).font(.caption2).monospacedDigit().foregroundStyle(.secondary)
+                    .fixedSize()
+            }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 8)
+        .frame(minHeight: 44)
+        .background {
+            RoundedRectangle(cornerRadius: 10)
+                .fill(LinearGradient(colors: [rowTint, .ddSecondaryBackground],
+                                     startPoint: .leading, endPoint: .trailing))
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 10))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(rank > 0 ? "第\(rank)名" : "置顶")，\(item.word)")
+        .accessibilityValue(item.hot > 0 ? "热度 \(heat)" : "")
+    }
+
+    private var rowTint: Color {
+        if scheme == .light { return accent.opacity(0.08) }
+        return rank <= 0 ? Color(red: 0.19, green: 0.25, blue: 0.36)
+            : (rank <= 3 ? Color(red: 0.23, green: 0.21, blue: 0.21) : Color(white: 0.14))
+    }
+
+    private var heat: String {
+        if item.hot >= 100_000_000 { return String(format: "%.1f亿", Double(item.hot) / 100_000_000) }
+        if item.hot >= 10_000 { return String(format: "%.1f万", Double(item.hot) / 10_000) }
+        return String(item.hot)
+    }
+}

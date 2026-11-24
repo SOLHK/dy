@@ -1,0 +1,165 @@
+// 页面使用自适应语义颜色；媒体画布和直接叠在视频上的文字保留独立对比色。
+import SwiftUI
+
+struct DDColor {
+    let light: Color
+    let dark: Color
+    init(_ c: Color) { light = c; dark = c }
+    init(light: Color, dark: Color) { self.light = light; self.dark = dark }
+    func color(for scheme: ColorScheme) -> Color { scheme == .dark ? dark : light }
+}
+
+enum DDFontSize { case caption, body, headline, title, displayLarge, splash }
+
+struct DDTheme {
+    static let sheetCornerRadius: CGFloat = 32
+    static let shareSheetHeight: CGFloat = 300
+
+    struct Media {
+        let scrim = DDColor(.black.opacity(0.35))
+        let strongScrim = DDColor(.ddBackground)
+        let onMedia = DDColor(.white)
+        let onMediaSecondary = DDColor(.white.opacity(0.72))
+        let chromeFill = DDColor(.black.opacity(0.35))
+        let channelBar = Color(red: 26 / 255, green: 35 / 255, blue: 56 / 255)
+        let channelTab = Color(red: 46 / 255, green: 59 / 255, blue: 86 / 255)
+        let channelPaper = Color(red: 246 / 255, green: 242 / 255, blue: 234 / 255)
+        let channelAccent = Color(red: 242 / 255, green: 193 / 255, blue: 150 / 255)
+        // Optical calibration from the owner's build84 screenshot: signal x=1215,
+        // rail x=1223, 54pt capsule spans 73px. 8 * 54 / 73 ≈ 6pt leading.
+        // This is not the system column width; runtime geometry still determines that.
+        let expandedRailOpticalInset: CGFloat = 6
+        // 右侧栏统一线框图标；进度环参照系统电量环的实白圆头线条。
+        let actionGlyphStroke: CGFloat = 1.8
+        let actionGlyphSize: CGFloat = 27
+        let moduleGlyphSize: CGFloat = 20
+        let moreGlyphSize: CGFloat = 23
+        let inputInactiveRailOpacity: Double = 0.25
+        let progressRingWidth: CGFloat = 3.2
+        let progressRingTrackOpacity: Double = 0.22
+        let actionItemSpacing: CGFloat = 9     // 原 12，整体缩 1/4
+        let actionGroupSpacing: CGFloat = 12   // 原 16，整体缩 1/4
+    }
+    struct Status {
+        let danger = DDColor(Color(red: 1.0, green: 0.17, blue: 0.33))     // 抖音红
+        let warning = DDColor(.orange)
+        let success = DDColor(.green)
+    }
+    struct Typography {
+        func pointSize(_ s: DDFontSize) -> CGFloat {
+            switch s {
+            case .caption: 12
+            case .body: 15
+            case .headline: 17
+            case .title: 22
+            case .displayLarge: 29
+            case .splash: 52
+            }
+        }
+    }
+    let media = Media()
+    let status = Status()
+    let typography = Typography()
+    /// Shared native/web IM canvas; CSS values stay in the theme, not business scripts.
+    struct Messages {
+        let sidebarTint = Color.ddMessageListBackground
+        let pinnedRow = Color.ddMessagePinnedRow
+        let selectedRow = Color.ddMessagePinnedRow
+        let splitDivider = Color.ddMessageSplitDivider
+        let splitDividerWidth: CGFloat = 1
+        let headerHeight: CGFloat = 60
+    }
+    let messages = Messages()
+    let accent = DDColor(Color(red: 1.0, green: 0.17, blue: 0.33))
+}
+
+extension EnvironmentValues {
+    @Entry var appTheme = DDTheme()
+    /// 界面放大系数：目前固定 1（不做全局缩放）；PR 里播放器部分用到，先给个默认值
+    @Entry var ddScale: CGFloat = 1
+}
+
+enum DDElevation { case mediaLabel, floatingPanel }
+
+extension View {
+    func themeShadow(_ e: DDElevation) -> some View {
+        switch e {
+        case .mediaLabel: shadow(color: .black.opacity(0.45), radius: 3, y: 1)
+        case .floatingPanel: shadow(color: .black.opacity(0.3), radius: 10, y: 4)
+        }
+    }
+}
+
+extension ShapeStyle where Self == Color {
+    static var themeTextPrimary: Color { .primary }
+    static var themeTextSecondary: Color { .secondary }
+}
+
+// MARK: - 液态玻璃圆按钮（iOS 26+ glassEffect；低版本回退 ultraThinMaterial 圆底）
+
+extension View {
+    /// 液态玻璃圆底：iOS 26+ 用 `.glassEffect(.regular.interactive(), in: .circle)`；
+    /// 传入 tint 表示选中态（点赞红 / 收藏黄），用 `.regular.tint(color.opacity(0.22)).interactive()`；
+    /// iOS 26 以下回退 `.ultraThinMaterial` 圆底（选中态叠一层 22% 的 tint）。
+    @ViewBuilder
+    func ddGlassCircle(_ tint: Color? = nil) -> some View {
+        if #available(iOS 26.0, *) {
+            if let tint {
+                self.foregroundStyle(.primary).glassEffect(.regular.tint(tint.opacity(0.22)).interactive(), in: .circle)
+            } else {
+                self.foregroundStyle(.primary).glassEffect(.regular.interactive(), in: .circle)
+            }
+        } else {
+            self
+                .foregroundStyle(.primary)
+                .background(tint.map { $0.opacity(0.22) } ?? .clear, in: Circle())
+                .background(.ultraThinMaterial, in: Circle())
+        }
+    }
+}
+
+extension View {
+    /// 竖向液态玻璃胶囊（小红书式右侧栏底板）
+    @ViewBuilder
+    func ddGlassCapsule() -> some View {
+        if #available(iOS 26.0, *) {
+            self.foregroundStyle(.primary).glassEffect(.regular.interactive(), in: .capsule)
+        } else {
+            self.foregroundStyle(.primary).background(.ultraThinMaterial, in: Capsule())
+        }
+    }
+}
+
+// Scope the dark appearance to media controls, so sheets and page canvases
+// continue to follow the user's global selection.
+extension View {
+    func ddMediaGlassCircle(_ tint: Color? = nil) -> some View {
+        ddGlassCircle(tint).environment(\.colorScheme, .dark)
+    }
+
+    func ddMediaGlassCapsule() -> some View {
+        ddGlassCapsule().environment(\.colorScheme, .dark)
+    }
+}
+
+struct GlassBackground: View {
+    var body: some View { Rectangle().fill(.regularMaterial).ignoresSafeArea() }
+}
+
+enum WuWeiDesign {
+    enum Spacing {
+        static let xs: CGFloat = 6
+        static let sm: CGFloat = 8
+        static let md: CGFloat = 12
+        static let lg: CGFloat = 16
+    }
+}
+
+// Only feed pages publish actions to the shared safe-area rail.
+extension EnvironmentValues {
+    @Entry var dyRootRailTab: DYTab? = nil
+    /// 评论面板右侧已经让开系统竖栏（外层按遮挡区缩窄了宽度），面板内不必再给关闭键额外留 88pt。
+    @Entry var dyCommentTrailingCleared: Bool = false
+    /// 系统铰链为 closed（合屏）。由根视图 DYHingeStateRoot 统一下发。
+    @Entry var dyHingeClosed: Bool = false
+}

@@ -1,0 +1,380 @@
+import SwiftUI
+import UIKit
+import AVFoundation
+
+/// 前后台过渡用 AppDelegate。Scene 的 onChange 在部分切后台路径下不触发。
+/// 短视频仍在这里暂停。直播继续或静音由「后台直播声音」在同一条生命周期里决定。
+final class DouDuoAppDelegate: NSObject, UIApplicationDelegate {
+    func applicationWillResignActive(_ application: UIApplication) {
+        DDPlayback.shared.pauseForInactivity()
+    }
+    func applicationDidEnterBackground(_ application: UIApplication) {
+        DDPlayback.shared.pauseAll()
+    }
+    func applicationDidBecomeActive(_ application: UIApplication) {
+        // 只有「之前真被切过后台」才恢复，避免启动时抢跑播放
+        DDPlayback.shared.resumeAll()
+    }
+
+    #if DEBUG
+    private let _launch = DDLaunch.t0
+    #endif
+    func application(_ application: UIApplication,
+                     didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        // 不让 VLC（推荐直播卡）在前台关掉音频会话，否则下一条短视频开播后会被系统停住
+        DDAudioSessionGuard.install()
+        #if DEBUG
+        enum DYVideoCacheProbe {
+            static func anyLocal() -> URL? {
+                let d = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("dd-videos")
+                return (try? FileManager.default.contentsOfDirectory(at: d, includingPropertiesForKeys: nil))?.first { $0.pathExtension == "mp4" }
+            }
+        }
+        // 播放中直接丢掉 VLC 控制器（模拟离开推荐页时直播卡整页销毁），量主线程被占多久
+        if ProcessInfo.processInfo.environment["DOUDUO_VLCDEINIT_TEST"] == "1", let f = DYVideoCacheProbe.anyLocal() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                var v: VLCPlayerController? = VLCPlayerController()
+                let surface = UIView(frame: CGRect(x: 0, y: 0, width: 160, height: 90))
+                UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first?.addSubview(surface)
+                v?.mediaPlayer.drawable = surface
+                v?.play(url: f)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                    let playing = v?.isPlaying ?? false
+                    let t0 = Date()
+                    v = nil                                   // 最后一个引用：触发 deinit
+                    let ms = Int(Date().timeIntervalSince(t0) * 1000)
+                    surface.removeFromSuperview()
+                    DYLiveModel.log("DDVLCDEINIT playing=\(playing) mainBlockedMs=\(ms)")
+                }
+            }
+        }
+        if ProcessInfo.processInfo.environment["DOUDUO_AUDIOGUARD_TEST"] == "1" {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                let s = AVAudioSession.sharedInstance()
+                try? s.setCategory(.playback, options: DYLaunchMute.sessionOptions); try? s.setActive(true)
+                let before = DDAudioSessionGuard.blocked
+                try? s.setActive(false, options: .notifyOthersOnDeactivation)   // 模拟 VLC：前台关会话 → 应被拦
+                let blockedVLC = DDAudioSessionGuard.blocked - before
+                var ok = false
+                DDAudioSessionGuard.allowDeactivate { ok = (try? s.setActive(false)) != nil }   // 我们自己关 → 应放行
+                DYLiveModel.log("DDAUDIOGUARD selftest blockedForeign=\(blockedVLC) ownAllowed=\(ok) blockedTotal=\(DDAudioSessionGuard.blocked)")
+                // 真 VLC：播本地视频 3 秒再 stop，看它是否去关会话、有没有被拦
+                if let f = Bundle.main.url(forResource: "vlcprobe", withExtension: "mp4") ?? DYVideoCacheProbe.anyLocal() {
+                    let v = VLCPlayerController()
+                    try? s.setActive(true)
+                    let b0 = DDAudioSessionGuard.blocked
+                    // 没有界面层也得给 VLC 一个渲染目标，否则它不真正开播
+                    let surface = UIView(frame: CGRect(x: 0, y: 0, width: 160, height: 90))
+                    UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first?.addSubview(surface)
+                    v.mediaPlayer.drawable = surface
+                    v.play(url: f)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                        v.stop()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                            DYLiveModel.log("DDAUDIOGUARD vlc-test file=\(f.lastPathComponent) blockedByVLC=\(DDAudioSessionGuard.blocked - b0) played=\(v.duration)")
+                            _ = v; surface.removeFromSuperview()
+                        }
+                    }
+                } else { DYLiveModel.log("DDAUDIOGUARD vlc-test no local file") }
+            }
+        }
+        #endif
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["DOUDUO_RESET_HASHTAG_FILTER"] == "1" {
+            UserDefaults.standard.removeObject(forKey: DYHashtagFilter.storageKey)
+        }
+        if let appearance = ProcessInfo.processInfo.environment["DOUDUO_APPEARANCE"] {
+            if appearance == "reset" { UserDefaults.standard.removeObject(forKey: DDAppearance.key) }
+            else { UserDefaults.standard.set(appearance, forKey: DDAppearance.key) }
+        }
+        // 自动测试用：DOUDUO_CHROME_MODE=classic|rail|minimal 启动时写入界面模式（不用 -key 启动参数，那会盖住运行时修改）
+        if let m = ProcessInfo.processInfo.environment["DOUDUO_CHROME_MODE"] { UserDefaults.standard.set(m, forKey: "douyin_chrome_mode_v1") }
+        if DYMessageFixture.enabled { UserDefaults.standard.set(0.36, forKey: "douyin_message_sidebar_fraction_v1") }
+        #endif
+        #if DEBUG
+        // 自动测试用：DOUDUO_ACTTEST=<aweme_id> → 起播后直接打点赞/收藏接口，结果写 ddlog
+        if let aid = ProcessInfo.processInfo.environment["DOUDUO_ACTTEST"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 14) {
+                Task { @MainActor in
+                    let bridge = actTestBridge
+                    do {
+                        let ok = try await bridge.digg(aid, like: true)
+                        LocalVideoLaunch.log("DDACTTEST digg ok=\(ok)")
+                        let ok2 = try await bridge.digg(aid, like: false)
+                        LocalVideoLaunch.log("DDACTTEST undigg ok=\(ok2)")
+                    } catch { LocalVideoLaunch.log("DDACTTEST digg error \(error)") }
+                    do {
+                        let f = try await bridge.favorite(aid, add: true)
+                        LocalVideoLaunch.log("DDACTTEST fav ok=\(f)")
+                    } catch { LocalVideoLaunch.log("DDACTTEST fav error \(error)") }
+                }
+            }
+        }
+        // 自动测试用：DOUDUO_LIVETEST=1 → 对比不同 Referer 下是否能拿到视频轨
+        if ProcessInfo.processInfo.environment["DOUDUO_LIVETEST"] == "1" {
+            Task { @MainActor in
+                let rooms = (try? await actTestBridge.fetchLive(reset: true)) ?? []
+                LocalVideoLaunch.log("DDLIVE rooms=\(rooms.count)")
+                for (i, r) in rooms.prefix(4).enumerated() {
+                    guard let u = r.bestHLS else { continue }
+                    for ref in ["https://live.douyin.com/", "https://live.douyin.com/\(r.webRid)", "https://www.douyin.com/"] {
+                        var h = DYMedia.headers
+                        h["Referer"] = ref
+                        let asset = AVURLAsset(url: u, options: ["AVURLAssetHTTPHeaderFieldsKey": h])
+                        let item = AVPlayerItem(asset: asset)
+                        let p = AVPlayer(playerItem: item)
+                        p.play()
+                        try? await Task.sleep(nanoseconds: 7_000_000_000)
+                        if i == 0, ref.hasSuffix(".com/") { LocalVideoLaunch.log("DDLIVEURL \(u.absoluteString)") }
+                        LocalVideoLaunch.log("DDLIVE #\(i) ref=\(ref.suffix(12)) st=\(item.status.rawValue) size=\(item.presentationSize) n=\(item.tracks.count) types=\(item.tracks.compactMap { $0.assetTrack?.mediaType.rawValue }.joined(separator: ",")) t=\(String(format: "%.1f", p.currentTime().seconds))")
+                        p.pause()
+                    }
+                }
+                LocalVideoLaunch.log("DDLIVE done")
+            }
+        }
+        // 自动测试用：DOUDUO_BGTEST=1 → 起播 20 秒后模拟一次「进后台」，验证停声链路
+        if ProcessInfo.processInfo.environment["DOUDUO_BGTEST"] == "1" {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 20) {
+                LocalVideoLaunch.log("DDBG bgtest pauseAll")
+                DDPlayback.shared.pauseAll()
+            }
+        }
+        #endif
+        return true
+    }
+}
+
+@main
+struct DouDuoApp: App {
+    @UIApplicationDelegateAdaptor(DouDuoAppDelegate.self) private var appDelegate
+    @Environment(\.scenePhase) private var scenePhase
+    @AppStorage(DDAppearance.key) private var appearance = DDAppearance.dark.rawValue
+
+    init() {
+        // 信息里的图片/封面都走网页：默认的 URLCache 又小又是内存为主，进聊天每次都要重新下载。
+        // 放大到 512MB 磁盘（跨启动复用），能省掉大部分重复请求。
+        URLCache.shared = URLCache(memoryCapacity: 64 << 20,
+                                   diskCapacity: 512 << 20,
+                                   diskPath: "dd-url-cache")
+        // 自动清理以前版本漏在 tmp 里的视频下载残留（分段目录 / 半截下载），老用户升级后不用手动点清理
+        DYStorageFiles.cleanLeftoversAtLaunch()
+        // 「不再推荐看过的视频」：推荐接口新推来的，划到过就跳过（开关在设置 → 推荐与内容）
+        DYFeedModel.isSeen = { id in DYSeenHistory.enabled && DYSeenHistory.shared.contains(id) }
+        DYLaunchMute.apply()
+        // 平台登录失效时提示重新登录
+        Task { @MainActor in
+            DYKeyStateProbe.log = { DYLiveModel.log($0) }
+            DYPassportVerify.log = { DYLiveModel.log($0) }
+            #if DEBUG
+            DYPassportVerify.runDemoIfRequested()
+            #endif
+            DYSessionWatch.shared.start()
+        }
+    }
+
+    var body: some Scene {
+        WindowGroup {
+            Group {
+                #if DEBUG
+                if ProcessInfo.processInfo.environment["DOUDUO_SHARE_LAYOUT"] == "1" {
+                    DYForwardLayoutProbe()
+                } else if let rel = ProcessInfo.processInfo.environment["DOUDUO_RELATIONS_PROBE"],
+                          rel == "following" || rel == "followers" {
+                    DYRelationsProbe(kind: rel == "following" ? .following : .followers)
+                } else if ProcessInfo.processInfo.environment["DOUDUO_NOTICE_PROBE"] == "1" {
+                    DYNoticeProbe()
+                } else if ProcessInfo.processInfo.environment["DOUDUO_MESSAGE_LAYOUT"] == "1" {
+                    DYMessageLayoutProbe()
+                } else if ProcessInfo.processInfo.environment["DOUDUO_APPEARANCE_WEB_FIXTURE"] == "1" || ProcessInfo.processInfo.environment["DOUDUO_APPEARANCE_WEB_LIVE"] == "1" {
+                    DDAppearanceWebProbe()
+                } else if ProcessInfo.processInfo.environment["DOUDUO_TITLETEST"] == "1" {
+                    DYTitleLayoutProbe()
+                } else if let target = LocalVideoLaunch.target {
+                    LocalVideoPlaybackView(url: target.url, fillWidth: target.fill)
+                } else {
+                    DouyinFeedScreen()
+                }
+                #else
+                DouyinFeedScreen()
+                #endif
+            }
+            .onAppear { DDAppearance.applyToWindows(appearance) }
+            .onChange(of: appearance) { _, value in DDAppearance.applyToWindows(value) }
+            #if DEBUG
+            .overlay(alignment: .topLeading) { DDAppearanceStateProbe() }
+            #endif
+            .modifier(DYHingeStateRoot())
+            .modifier(DYCollectPromptHost(owner: .feed))
+            .task(id: scenePhase) {
+                if scenePhase == .active { await DYOfflineDownloads.shared.refreshRetention() }
+            }
+        }
+        // 退到后台 / 锁屏：短视频按「后台播放」停声。直播走同一条恢复，是否出声看「后台直播声音」。
+        // 回到前台会先经过 inactive。这里如果当成后台，会把刚刚恢复的直播立刻停掉。
+        .onChange(of: scenePhase) { _, phase in
+            #if DEBUG
+            LocalVideoLaunch.log("DDSCENE phase=\(String(describing: phase))")
+            #endif
+            if phase == .active {
+                // 信息页（fullScreenCover）切后台回来，系统会把状态栏（时间/信号）判成隐藏，
+                // 而所有页面都要求显示（真机日志 prefersStatusBarHidden=false）。回前台后让各层重新上报一次。
+                // 真机对照：不刷新时切回 2/2 次时间消失，刷新后 0/2。
+                for delay in [0.3, 1.0] {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) { DDStatusBarRefresh.run() }
+                }
+            }
+            let signal: DYLiveSceneSignal
+            switch phase {
+            case .active: signal = .active
+            case .background: signal = .background
+            case .inactive: signal = .inactive
+            @unknown default: signal = .inactive
+            }
+            switch DYLivePlaybackGate.sceneCommand(signal) {
+            case .pause: DDPlayback.shared.pauseAll()
+            case .resume: DDPlayback.shared.resumeAll()
+            case .none: break
+            }
+        }
+    }
+}
+
+struct DYOfflineAutomaticDownload: ViewModifier {
+    let ready: Bool
+    let candidateSource: (Int) async throws -> [DYAweme]
+
+    @Environment(\.scenePhase) private var scenePhase
+    @AppStorage(DYOfflineDownloads.automaticDownloadKey) private var enabled = false
+    @AppStorage(DYOfflineDownloads.downloadTargetKey) private var target = DYOfflineDownloads.defaultDownloadTarget
+    @ObservedObject private var downloads = DYOfflineDownloads.shared
+
+    private var activeTarget: Int? {
+        guard enabled, ready, scenePhase == .active, downloads.isOnWiFi,
+              !downloads.isOffline, downloads.savedCount < target else { return nil }
+        return target
+    }
+
+    func body(content: Content) -> some View {
+        content.task(id: activeTarget) {
+            guard activeTarget != nil else { return }
+            await downloads.refreshRetention()
+            guard !Task.isCancelled, activeTarget != nil else { return }
+            downloads.startAutomatic(candidateSource: candidateSource)
+        }
+        .onChange(of: enabled) { _, enabled in
+            if !enabled { downloads.stopAutomatic() }
+        }
+    }
+}
+
+#if DEBUG
+/// 给 DOUDUO_ACTTEST 用的、独立于界面的桥接实例
+@MainActor
+let actTestBridge = DouyinBridge()
+
+/// 用法：启动环境变量 DOUDUO_LOCALVIDEO=<Documents 里的文件名或绝对路径> [DOUDUO_LOCALFIT=0]
+/// 直接把本地视频丢进播放页，用来核对「自动铺满宽度」的裁切效果。
+enum LocalVideoLaunch {
+    static func log(_ s: String) {
+        let u = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("ddlog.txt")
+        let line = "\(Date()) \(s)\n"
+        if let h = try? FileHandle(forWritingTo: u) { h.seekToEndOfFile(); h.write(Data(line.utf8)); try? h.close() }
+        else { try? Data(line.utf8).write(to: u) }
+    }
+    static var target: (url: URL, fill: Bool)? {
+        let env = ProcessInfo.processInfo.environment
+        guard let p = env["DOUDUO_LOCALVIDEO"] else { return nil }
+        let url = p.hasPrefix("/") ? URL(fileURLWithPath: p)
+            : FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent(p)
+        return (url, env["DOUDUO_LOCALFIT"] != "0")
+    }
+}
+
+struct LocalVideoPlaybackView: View {
+    let url: URL
+    @State private var fillWidth: Bool
+
+    init(url: URL, fillWidth: Bool) {
+        self.url = url
+        _fillWidth = State(initialValue: fillWidth)
+    }
+
+    var body: some View {
+        ZStack {
+            Color.ddBackground.ignoresSafeArea()
+            PlayerPage.external(id: "local", title: url.lastPathComponent, url: url, durationSec: 20,
+                                isActive: true, topInset: 0, bottomInset: 0, resumePosition: nil,
+                                compactChrome: true, onEnded: nil, onDoubleTap: nil,
+                                onSavePosition: { _ in }, onClose: {}, fillWidth: fillWidth,
+                                onFillWidthChange: { fillWidth = $0 },
+                                videoAspect: Double(ProcessInfo.processInfo.environment["DOUDUO_LOCALASPECT"] ?? "") ?? 0)
+        }
+    }
+}
+#endif
+
+#if DEBUG
+/// 接口探针：DOUDUO_APITEST=1，用界面里那个挂在窗口上的签名页跑
+@MainActor enum DDApiProbe {
+    static func run(_ b: DouyinBridge) async {
+                try? await Task.sleep(nanoseconds: 6_000_000_000)
+                let pre = #"""
+                const sum = (name, r) => {
+                  const d = parse(r.t) || {};
+                  const lists = Object.keys(d).filter(k => Array.isArray(d[k])).map(k => k + ':' + d[k].length).join(',');
+                  return name + ' http=' + r.s + ' code=' + d.status_code + ' msg=' + (d.status_msg || '') + ' lists=[' + lists + '] more=' + d.has_more + ' cur=' + (d.cursor ?? d.max_cursor) + ' keys=' + Object.keys(d).slice(0, 14).join('|') + (Object.keys(d).length ? '' : ' raw=' + (r.t || '').slice(0, 80));
+                };
+                """#
+                // 先拿一条有评论的推荐视频
+                let pick = await b.probe(pre + #"""
+                const fr = await req('POST', '/aweme/v2/web/module/feed/?' + q({ module_id: '3003101', count: '10', refresh_index: '3', pull_type: '2', refer_type: '10' }), '');
+                const list = (parse(fr.t) || {}).aweme_list || [];
+                const a = list.find(a => a && a.statistics && a.statistics.comment_count > 50) || list[0] || {};
+                return [a.aweme_id, (a.video && a.video.duration) || 60000, (a.author && a.author.sec_uid) || ''].join(' ');
+                """#)
+                LocalVideoLaunch.log("DDAPI pick=\(pick)")
+                let parts = pick.split(separator: " ").map(String.init)
+                _ = parts
+                let base1 = "search_channel: 'aweme_video_web', keyword: '猫', search_source: 'normal_search', query_correct_type: '1', is_filter_search: '0', from_group_id: '', list_type: 'single'"
+                let tests: [(String, String)] = [
+                    ("p1", "const r = await req('GET', '/aweme/v1/web/search/item/?' + q({ \(base1), offset: '0', count: '16', need_filter_settings: '1' })); const d = parse(r.t) || {}; window.__sid = (d.log_pb||{}).impr_id || (d.extra||{}).logid || ''; return sum('p1', r) + ' impr=' + window.__sid + ' extra=' + JSON.stringify(d.extra||{}).slice(0,120);"),
+                    ("p2-plain", "return sum('p2-plain', await req('GET', '/aweme/v1/web/search/item/?' + q({ \(base1), offset: '16', count: '16', need_filter_settings: '0' })));"),
+                    ("p2-sid", "return sum('p2-sid', await req('GET', '/aweme/v1/web/search/item/?' + q({ \(base1), offset: '16', count: '16', need_filter_settings: '0', search_id: window.__sid || '' })));"),
+                    ("p2-count10", "return sum('p2-count10', await req('GET', '/aweme/v1/web/search/item/?' + q({ \(base1), offset: '10', count: '10', need_filter_settings: '0', search_id: window.__sid || '' })));"),
+                    ("p2-general", "return sum('p2-general', await req('GET', '/aweme/v1/web/general/search/single/?' + q({ search_channel: 'aweme_general', keyword: '猫', search_source: 'normal_search', query_correct_type: '1', is_filter_search: '0', from_group_id: '', offset: '10', count: '10', need_filter_settings: '0', list_type: 'single', search_id: window.__sid || '' })));"),
+                ]
+                for (name, body) in tests {
+                    LocalVideoLaunch.log("DDAPI start \(name)")
+                    let r = await withTaskGroup(of: String.self) { g -> String in
+                        g.addTask { await b.probe(pre + body) }
+                        g.addTask { try? await Task.sleep(nanoseconds: 30_000_000_000); return "TIMEOUT" }
+                        let first = await g.next() ?? "?"
+                        g.cancelAll()
+                        return first
+                    }
+                    LocalVideoLaunch.log("DDAPI \(name): " + r.prefix(900))
+                }
+                LocalVideoLaunch.log("DDAPI done")
+            
+    }
+}
+#endif
+
+/// 让窗口里从根到最上层的每个控制器重新上报状态栏外观（修信息页切后台回来时间/信号消失）。
+enum DDStatusBarRefresh {
+    @MainActor static func run() {
+        var hidden = false
+        for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
+            for window in scene.windows {
+                var vc = window.rootViewController
+                while let current = vc {
+                    current.setNeedsStatusBarAppearanceUpdate()
+                    vc = current.presentedViewController
+                }
+            }
+            hidden = hidden || (scene.statusBarManager?.isStatusBarHidden ?? false)
+        }
+        DYLiveModel.log("DDSTATUSBAR refresh hidden=\(hidden)")
+    }
+}
