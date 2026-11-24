@@ -21,8 +21,8 @@ enum DDUpdateChecker {
     /// 自家分发：软件源（R2）与更新页
     static let sourceURL = URL(string: "https://dl.oneduo.app/douduo/douduo.json")!
     static let updatePage = URL(string: "https://oneduo.app/")!
-    /// 「关于」跳转的开源仓库（GitHub，公开）
-    static var repoURL: URL { URL(string: "https://github.com/\(repo)")! }
+    /// 设置页使用项目仓库，版本说明仍使用上游来源。
+    static let repoURL = URL(string: "https://github.com/SOLHK/dy")!
 
     static var currentVersion: String {
         (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "0"

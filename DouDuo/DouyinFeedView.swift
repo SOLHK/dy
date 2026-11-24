@@ -1853,13 +1853,13 @@ struct DYUpstreamFeedScreen: DYRecommendFeedHost {
             }
         }
         .overlayPreferenceValue(DYFeedRailPreference.self) { entries in
-            if railMode, !commentsOpen {
+            if railMode, !commentsOpen, !showMessages {
                 let entry = entries.first { $0.tab == tab && (tab != .recommend || $0.id == currentID) }
                 rootActionRail(entry, selector: false)
             }
         }
         .overlay {
-            if railMode, !(tab == .live && (live.clean || live.entered)), !commentsOpen {
+            if railMode, !(tab == .live && (live.clean || live.entered)), !commentsOpen, !showMessages {
                 if tab == .live, layoutAModuleAnchor.active, feedHost.width > 1 {
                     layoutAModuleButton.modifier(DYRailInputLock())
                 } else {
@@ -2155,6 +2155,7 @@ struct DYUpstreamFeedScreen: DYRecommendFeedHost {
                 showMessages = false
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { web = DYWebTarget(url: u) }
             })
+            .presentationBackground(Color.ddBackground)
             // 信息页盖着时外层视频必须停，切后台再回来也不许自己恢复
             .onAppear { DDPlayback.shared.pauseAll(reason: .cover) }
         }
@@ -2453,7 +2454,7 @@ struct DYUpstreamFeedScreen: DYRecommendFeedHost {
     /// The selector and current video actions share the same outer-column geometry.
     /// Empty and live pages reserve the same slots, so changing modules never moves the selector.
     private func rootActionRail(_ entry: DYFeedRailEntry?, selector: Bool) -> some View {
-        let groupHeight = 3 * CGFloat(50) + 44 + 3 * theme.media.actionItemSpacing + 16
+        let groupHeight = 3 * CGFloat(50) + 2 * theme.media.actionItemSpacing + 16
         let railHeight = 50 + theme.media.actionGroupSpacing + groupHeight + theme.media.actionGroupSpacing + 50
         return DYAdaptiveActionRail { edge in
             // Read the current container's inset before expanding into the outer column.
@@ -3457,7 +3458,7 @@ struct DYClassicFeedScreen: DYRecommendFeedHost {
                         .environment(\.duoVisibleVideo, $visibleVideo)
                         .environment(\.duoCleanScreen, cleanScreen)
                         .overlayPreferenceValue(DYActiveVideoActionsKey.self) { actions in
-                            DYNativeVideoActions(actions: hidesVideoChrome ? nil : actions,
+                            DYNativeVideoActions(actions: mainTab == .home && !hidesVideoChrome ? actions : nil,
                                                  isClean: cleanScreen,
                                                  onToggleClean: { cleanScreen.toggle() },
                                                  inlineTopInset: headerTopInset)
@@ -4296,19 +4297,13 @@ struct DYUpstreamVideoPage: View {
                 railItem(liked ? "heart.fill" : "heart", DYFormat.count(item.stats.digg + (liked ? 1 : 0)),
                          tint: liked ? theme.status.danger.color(for: scheme) : fg, "douyin.like", onLike)
                 railItem("ellipsis.bubble", DYFormat.count(item.stats.comment), tint: fg, "douyin.comments", onComments)
-                railItem(collected ? "star.fill" : "star", DYFormat.count(item.stats.collect + (collected ? 1 : 0)),
+                let collectCount = DYFormat.count(item.stats.collect + (collected ? 1 : 0))
+                railItem("sparkles", collectCount,
                          tint: collected ? theme.status.warning.color(for: scheme) : fg, "douyin.collect", onCollect)
+                    .accessibilityLabel("收藏，\(collectCount)")
+                    .accessibilityAddTraits(collected ? .isSelected : [])
                 if !chromeMode.usesRail {
                     railItem("magnifyingglass", "", tint: fg, "douyin.search", onSearch)
-                }
-                if item.images.isEmpty {
-                    // 有些视频铺满后会裁掉边缘，随手切回完整画面
-                    // 颜色不变，靠图标形态区分：铺满中 = 向内箭头（点了缩回完整画面）；完整画面 = 向外箭头（点了放大铺满）
-                    railItem(autoFit ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right", "", tint: fg,
-                             "douyin.fit") {
-                        autoFit.toggle()
-                        onToast?(autoFit ? "铺满：开" : "完整画面")
-                    }
                 }
             }
             .padding(.vertical, 8)
@@ -4323,26 +4318,17 @@ struct DYUpstreamVideoPage: View {
     private func railItem(_ icon: String, _ text: String, tint: Color, _ id: String, _ act: @escaping () -> Void) -> some View {
         Button(action: { if !boost.blocksTap { act() } }) {
             VStack(spacing: 2) {
-                Group {
-                    if id == "douyin.fit" {
-                        DYFitCornerGlyph(inward: !autoFit)   // 11-14 老板定：图标按「点了会怎样」显示（PR #47 的反向改动不采纳）
-                            .stroke(tint, style: StrokeStyle(lineWidth: theme.media.actionGlyphStroke, lineCap: .round, lineJoin: .round))
-                            .frame(width: theme.media.actionGlyphSize, height: theme.media.actionGlyphSize)
-                    } else {
-                        Image(systemName: icon)
-                            .font(.system(size: theme.media.actionGlyphSize, weight: .regular, design: .rounded))
-                            .foregroundStyle(tint)
-                    }
-                }
-                .frame(width: 34, height: 34)
+                Image(systemName: icon)
+                    .font(.system(size: theme.media.actionGlyphSize, weight: .regular, design: .rounded))
+                    .foregroundStyle(tint)
+                    .frame(width: 34, height: 34)
                 if !text.isEmpty {
                     Text(text).font(.caption2.weight(.medium)).monospacedDigit()
                         .foregroundStyle(theme.media.onMediaSecondary.color(for: scheme))
                         .lineLimit(1).minimumScaleFactor(0.7)
                 }
             }
-            // 有数字的按钮：图标 34 + 间隙 2 + 文字；没数字的（搜索/铺满）去掉文字那一截，只留图标高度，
-            // 这样图标到相邻按钮的距离，和「图标—文字」之间的距离一致，不再多出一块空白
+            // 搜索没有数字，只保留图标高度。
             .frame(width: railWidth, height: text.isEmpty ? 36 : 50, alignment: .top)
             .contentShape(Rectangle())
         }
@@ -4786,8 +4772,9 @@ struct DYClassicVideoPage: View {
             like: AnyView(railItem(liked ? "heart.fill" : "heart", DYFormat.count(item.stats.digg + (liked ? 1 : 0)),
                                   tint: liked ? theme.status.danger.color(for: scheme) : fg, "douyin.like", onLike)),
             comments: AnyView(railItem("ellipsis.bubble", DYFormat.count(item.stats.comment), tint: fg, "douyin.comments", onComments)),
-            collect: AnyView(railItem(collected ? "star.fill" : "star", DYFormat.count(item.stats.collect + (collected ? 1 : 0)),
-                                     tint: collected ? theme.status.warning.color(for: scheme) : fg, "douyin.collect", onCollect)),
+            collect: AnyView(railItem("sparkles", DYFormat.count(item.stats.collect + (collected ? 1 : 0)),
+                                     tint: collected ? theme.status.warning.color(for: scheme) : fg, "douyin.collect", onCollect)
+                .accessibilityAddTraits(collected ? .isSelected : [])),
             share: AnyView(railItem("arrowshape.turn.up.right", DYFormat.count(item.stats.share), tint: fg, "douyin.share") { showShare = true }),
             boost: item.images.isEmpty ? boost : nil
         )
@@ -4815,8 +4802,9 @@ struct DYClassicVideoPage: View {
             railItem(liked ? "heart.fill" : "heart", DYFormat.count(item.stats.digg + (liked ? 1 : 0)),
                      tint: liked ? theme.status.danger.color(for: scheme) : fg, "douyin.like", onLike)
             railItem("ellipsis.bubble", DYFormat.count(item.stats.comment), tint: fg, "douyin.comments", onComments)
-            railItem(collected ? "star.fill" : "star", DYFormat.count(item.stats.collect + (collected ? 1 : 0)),
+            railItem("sparkles", DYFormat.count(item.stats.collect + (collected ? 1 : 0)),
                      tint: collected ? theme.status.warning.color(for: scheme) : fg, "douyin.collect", onCollect)
+                .accessibilityAddTraits(collected ? .isSelected : [])
             railItem("arrowshape.turn.up.right", DYFormat.count(item.stats.share), tint: fg, "douyin.share") { showShare = true }
         }
         .foregroundStyle(fg)
@@ -6408,24 +6396,6 @@ extension DYFeedModel {
     /// 刷新结束还停在「正在刷新」（被取消、请求出错）时收起；已换成结果提示的不动。
     func endRefreshingToast() {
         if toast == Self.refreshingToast { toast = nil }
-    }
-}
-
-/// 铺满/还原：两枚对角框，统一圆头笔画，不使用粗箭头。
-private struct DYFitCornerGlyph: Shape {
-    var inward: Bool
-    func path(in rect: CGRect) -> Path {
-        var p = Path()
-        let a = rect.width * 0.17, b = rect.width * 0.83
-        let leg = rect.width * 0.29
-        if inward {
-            p.move(to: CGPoint(x: a, y: a + leg)); p.addLine(to: CGPoint(x: a + leg, y: a + leg)); p.addLine(to: CGPoint(x: a + leg, y: a))
-            p.move(to: CGPoint(x: b, y: b - leg)); p.addLine(to: CGPoint(x: b - leg, y: b - leg)); p.addLine(to: CGPoint(x: b - leg, y: b))
-        } else {
-            p.move(to: CGPoint(x: a, y: a + leg)); p.addLine(to: CGPoint(x: a, y: a)); p.addLine(to: CGPoint(x: a + leg, y: a))
-            p.move(to: CGPoint(x: b - leg, y: b)); p.addLine(to: CGPoint(x: b, y: b)); p.addLine(to: CGPoint(x: b, y: b - leg))
-        }
-        return p
     }
 }
 

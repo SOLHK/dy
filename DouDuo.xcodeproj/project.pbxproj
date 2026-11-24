@@ -72,6 +72,7 @@
 		6279D68970644B3297B72542 /* DDAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = E049F77CC7B7331FD0750ECD /* DDAppearance.swift */; };
 		632B32A26293F1A7708B8ED0 /* DYNavigationDock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C40201AD365787526792119 /* DYNavigationDock.swift */; };
 		640D8F930CE33AACE1C2FE24 /* DDReleaseNotes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 591344CAF2A91E0D7CC452C4 /* DDReleaseNotes.swift */; };
+		64F217B7B3754FE3A43760BD /* DDDiagnosticLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 482AE19F6B0E4C10A7602CB4 /* DDDiagnosticLog.swift */; };
 		64760847CD94FEE469039F33 /* DouyinFeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79D68085CA0B47F08B3A1535 /* DouyinFeedView.swift */; };
 		64E988A9D801D0D01BB6ECAD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7F33EB1CF5B949489AA77586 /* Assets.xcassets */; };
 		65B7CD540F494F463C4D1A9E /* DDAudioSessionGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9B20C3E24E2BCC516B851FC /* DDAudioSessionGuard.swift */; };
@@ -221,6 +222,7 @@
 		54934A09C570DF5D3F0042DC /* DouyinExpandableTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DouyinExpandableTitle.swift; sourceTree = "<group>"; };
 		5763C978AEF95B5187351667 /* DYTouchpad.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DYTouchpad.swift; sourceTree = "<group>"; };
 		591344CAF2A91E0D7CC452C4 /* DDReleaseNotes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DDReleaseNotes.swift; sourceTree = "<group>"; };
+		482AE19F6B0E4C10A7602CB4 /* DDDiagnosticLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DDDiagnosticLog.swift; sourceTree = "<group>"; };
 		595FE5CE5D6D10A299C8E468 /* DYChatOptionsPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DYChatOptionsPopover.swift; sourceTree = "<group>"; };
 		5DEE6A38F8578111777EB75A /* DYIMProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DYIMProbe.swift; sourceTree = "<group>"; };
 		631BD772CFA6D0746CEFAF94 /* DYVideoAmbient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DYVideoAmbient.swift; sourceTree = "<group>"; };
@@ -342,6 +344,7 @@
 				E049F77CC7B7331FD0750ECD /* DDAppearance.swift */,
 				110D29956FE874A340F5A465 /* DDAppearanceProbe.swift */,
 				A9B20C3E24E2BCC516B851FC /* DDAudioSessionGuard.swift */,
+				482AE19F6B0E4C10A7602CB4 /* DDDiagnosticLog.swift */,
 				6CA7EEC582B3E1800F3868EE /* DDPerfExperiment.swift */,
 				591344CAF2A91E0D7CC452C4 /* DDReleaseNotes.swift */,
 				EAEEA21047D0EC20D5AC1F3C /* DDWebAppearance.swift */,
@@ -669,6 +672,7 @@
 				6279D68970644B3297B72542 /* DDAppearance.swift in Sources */,
 				115E503A4451900455784A66 /* DDAppearanceProbe.swift in Sources */,
 				65B7CD540F494F463C4D1A9E /* DDAudioSessionGuard.swift in Sources */,
+				64F217B7B3754FE3A43760BD /* DDDiagnosticLog.swift in Sources */,
 				80ADD5B724F81D4CD80F7EC8 /* DDPerfExperiment.swift in Sources */,
 				640D8F930CE33AACE1C2FE24 /* DDReleaseNotes.swift in Sources */,
 				2727373BBAE8236687D47078 /* DDWebAppearance.swift in Sources */,
@@ -834,7 +838,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = DouDuo/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "抖音折页";
+				INFOPLIST_KEY_CFBundleDisplayName = "抖音";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "发布作品时拍摄视频或照片";
@@ -880,7 +884,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = DouDuo/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "抖音折页";
+				INFOPLIST_KEY_CFBundleDisplayName = "抖音";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "发布作品时拍摄视频或照片";
@@ -953,7 +957,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 129;
+				CURRENT_PROJECT_VERSION = 130;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = "";
 				ENABLE_NS_ASSERTIONS = NO;
@@ -1045,7 +1049,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 129;
+				CURRENT_PROJECT_VERSION = 130;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_STRICT_OBJC_MSGSEND = YES;

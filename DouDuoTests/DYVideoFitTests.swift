@@ -99,16 +99,16 @@ struct DYVideoFitTests {
         #expect(DYVideoFit.moreIdentifier == "douyin.quick.fit")
     }
 
-    @Test func settingsDoesNotDuplicateThePlaybackControl() {
-        #expect(DYVideoFit.showsLabeledControl(on: .settings) == false)
+    @Test func settingsShowsFillWidth() {
+        #expect(DYVideoFit.showsLabeledControl(on: .settings))
+        #expect(DYVideoFit.settingsIdentifier == "douyin.settings.fit")
     }
 
-    /// 默认/简洁/极简：右侧按钮栏收藏下已有铺满按钮，「更多」不重复
-    @Test func railMoreMenuDoesNotDuplicateTheRailButton() {
+    @Test func railMoreMenuLeavesFillWidthInSettings() {
         #expect(DYVideoFit.showsLabeledControl(on: .upstreamMore) == false)
     }
 
-    /// 只有经典模式的「更多」放铺满开关；默认/简洁/极简靠右侧按钮栏收藏下那个
+    /// 经典模式的「更多」保留铺满宽度的快捷开关。
     @Test(arguments: ["classic", "rail", "minimal", "duoClassic"])
     func onlyClassicMoreMenuShowsFillWidth(chrome: String) {
         #expect(DYVideoFit.showsLabeledControl(on: DYVideoFit.moreSurface(for: chrome)) == (chrome == "duoClassic"))

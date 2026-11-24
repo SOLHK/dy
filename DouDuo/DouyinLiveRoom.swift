@@ -34,21 +34,28 @@ extension DYLiveRoom {
 }
 
 enum DDLogWriter {
-    static let queue = DispatchQueue(label: "douduo.log", qos: .utility)
+    static let queue = DDDiagnosticLog.queue
+    #if DEBUG
     nonisolated(unsafe) static let formatter: DateFormatter = { let f = DateFormatter(); f.dateFormat = "HH:mm:ss"; return f }()
     nonisolated(unsafe) private static var handle: FileHandle?
-    /// 储存空间页「清理缓存」：删掉诊断日志 ddlog.txt，下次写日志时重建
+    #endif
+    /// 在同一个队列清理日志，避免和落盘或导出同时修改文件。
     static func clear() async -> Bool {
         await withCheckedContinuation { continuation in
             queue.async {
+                #if DEBUG
                 try? handle?.close()
                 handle = nil
+                #endif
                 let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("ddlog.txt")
-                continuation.resume(returning: DYStorageFiles.removeIfPresent(url))
+                let legacyRemoved = DYStorageFiles.removeIfPresent(url)
+                let recentRemoved = DDDiagnosticLog.clearOnLogQueue()
+                continuation.resume(returning: legacyRemoved && recentRemoved)
             }
         }
     }
 
+    #if DEBUG
     static func append(_ line: String) {
         if handle == nil, let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
             let url = dir.appendingPathComponent("ddlog.txt")
@@ -58,6 +65,7 @@ enum DDLogWriter {
         }
         handle?.write(Data(line.utf8))
     }
+    #endif
 }
 
 @MainActor
@@ -189,8 +197,11 @@ final class DYLiveModel: ObservableObject {
     nonisolated static func log(_ s: String) {
         let now = Date()
         DDLogWriter.queue.async {
+            DDDiagnosticLog.appendOnLogQueue(s, at: now)
+            #if DEBUG
             let line = DDLogWriter.formatter.string(from: now) + " " + s + "\n"
             DDLogWriter.append(line)
+            #endif
         }
     }
 

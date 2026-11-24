@@ -597,6 +597,16 @@ struct DYMessagesScreen: View {
     @State private var shareOpenAttempt = 0
     @State private var handledShareRequest = ""
     private var keepsSharedChatDock: Bool { openedFromShare && chromeModeRaw == DDChromeMode.duoClassic.rawValue }
+    private var usesCompactChatHeader: Bool {
+        if #available(iOS 27.1, *) {
+            return horizontalSizeClass == .compact && navigation.isChat && !showingMine
+        }
+        return false
+    }
+    private var showsMessageNavigationBar: Bool {
+        if #available(iOS 27.1, *) { return isClassicChrome && !usesCompactChatHeader }
+        return true
+    }
     private var compactSidebar: Bool { sidebarVisible && sidebarWidth < 250 }
     @Environment(\.appTheme) private var theme
     @Environment(\.colorScheme) private var scheme
@@ -662,13 +672,12 @@ struct DYMessagesScreen: View {
                             }
                         }
                     }
+                    .toolbarVisibility(showsMessageNavigationBar ? .visible : .hidden, for: .navigationBar)
                     .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
                     .scrollEdgeEffectHidden(true, for: .all)
                     .toolbar {
-                        // iOS 27.1+ 简洁/极简：返回 / 分类 / 更多 / 我的 全在自绘右侧栏（messageRail），样式和位置跟视频页右侧栏一致。
-                        // 经典模式：系统竖栏本身有 我的/消息/首页 Tab，再画一根栏会叠在同一列 →
-                        // 返回、分类、更多改成系统竖栏里的项，由系统跟 Tab 一起排（同视频页经典模式），「我的」用系统 Tab 那个。
-                        if #available(iOS 27.1, *), isClassicChrome {
+                        // 经典模式跟系统 Tab 共用竖栏，窄屏聊天由会话页头提供返回和更多。
+                        if #available(iOS 27.1, *), isClassicChrome, !usesCompactChatHeader {
                             if navigation.hasDetail {
                                 ToolbarItem(placement: .primaryAction) { detailBackButton }
                                     .axisBehavior(.verticalPreferred)
@@ -689,13 +698,18 @@ struct DYMessagesScreen: View {
                         }
                         if navigation.isChat {
                             if #unavailable(iOS 27.1) {
-                                ToolbarItem(placement: .primaryAction) { chatOptionsButton }
+                                ToolbarItem(placement: .primaryAction) { chatOptionsButton() }
                             }
                         }
                     }
             }
             .ignoresSafeArea(.keyboard)   // 键盘不给这一层减高度：右侧栏是贴底排的，减高度就整列上移
 
+        }
+        .background {
+            (navigation.isChat && !showingMine ? Color.ddMessageChatBackground : Color.ddBackground)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
         }
         .overlay {
             if openingChat == "forwarded-share", let forwardedShare {
@@ -896,12 +910,13 @@ struct DYMessagesScreen: View {
                     // 跟视频页同一公式：有系统竖栏时栏居中在那一列（+光学微调）；没有时离边 12
                     let outer = column > 0 ? max(0, (column - Self.railWidth) / 2 + theme.media.expandedRailOpticalInset) : 12
                     // 内容区右侧要让出：栏宽 + 栏外留白 − 系统竖栏本身（那一列内容区本来就不占）
-                    let reserve = max(0, Self.railWidth + outer * 2 - column)
+                    let reserve = usesCompactChatHeader ? 0 : max(0, Self.railWidth + outer * 2 - column)
                     ZStack(alignment: edge == .leading ? .leading : .trailing) {
                         messagePanes
                             .padding(edge == .leading ? .leading : .trailing, reserve)
                             .opacity(showingMine ? 0 : 1)
                             .allowsHitTesting(!showingMine)
+                            .accessibilityHidden(showingMine)
                         if showingMine || mineMounted, let mineContent {
                             // 外层整页忽略了顶部安全区；「我的」自带导航栏，内容要让开状态栏 + 导航栏，
                             // 否则页头（含「去登录」）被导航栏盖住、点不到（老板 2026-11-17「点击登录无反应」）。
@@ -913,10 +928,12 @@ struct DYMessagesScreen: View {
                                 .accessibilityHidden(!showingMine)
                                 .onAppear { mineMounted = true }
                         }
-                        messageRail
-                            .padding(.horizontal, outer)
-                            .frame(maxWidth: .infinity, alignment: edge == .leading ? .leading : .trailing)
-                            .ignoresSafeArea(edges: .horizontal)
+                        if !usesCompactChatHeader {
+                            messageRail
+                                .padding(.horizontal, outer)
+                                .frame(maxWidth: .infinity, alignment: edge == .leading ? .leading : .trailing)
+                                .ignoresSafeArea(edges: .horizontal)
+                        }
                     }
                 }
             }
@@ -1034,7 +1051,7 @@ struct DYMessagesScreen: View {
                     railItem(.fans, icon: "person", title: "粉丝", badge: counts[DYNoticeGroup.fans.rawValue] ?? 0)
                     railItem(.system, icon: "bell", title: "系统", badge: counts[DYNoticeGroup.system.rawValue] ?? 0)
                     railItem(.stranger, icon: "person.crop.circle.badge.questionmark", title: "陌生人", badge: strangerBadge)
-                    if navigation.isChat { chatMoreRailButton }
+                    if navigation.isChat { chatOptionsButton(rail: true) }
                 }
                 .padding(.vertical, 8)
                 .frame(width: Self.railWidth)
@@ -1282,23 +1299,30 @@ struct DYMessagesScreen: View {
         }
     }
 
-    private var chatOptionsButton: some View {
-        Button("更多", systemImage: "ellipsis") { showChatOptions = true }
-            .tint(.primary)
-            .accessibilityIdentifier("douyin.messages.more")
-            .popover(isPresented: $showChatOptions) {
-                if let web = chatModel.web, let id = navigation.chatID {
-                    DYChatOptionsPopover(web: web, conversationID: id) {
-                        Task { await readConversations() }
-                    }
-                    .presentationCompactAdaptation(.popover)
-                }
+    private func chatOptionsButton(rail: Bool = false) -> some View {
+        Group {
+            if rail {
+                railButton(icon: "ellipsis", title: "更多", selected: showChatOptions, badge: 0,
+                           id: "douyin.messages.more") { showChatOptions = true }
+            } else {
+                Button("更多", systemImage: "ellipsis") { showChatOptions = true }
+                    .tint(.primary)
             }
-            .onChange(of: showChatOptions) { _, showing in
-                if !showing, let web = chatModel.web, let id = navigation.chatID {
-                    Task { await DYChatWebBridge.closeOptions(web, id: id) }
+        }
+        .accessibilityIdentifier("douyin.messages.more")
+        .popover(isPresented: $showChatOptions) {
+            if let web = chatModel.web, let id = navigation.chatID {
+                DYChatOptionsPopover(web: web, conversationID: id) {
+                    Task { await readConversations() }
                 }
+                .presentationCompactAdaptation(.popover)
             }
+        }
+        .onChange(of: showChatOptions) { _, showing in
+            if !showing, let web = chatModel.web, let id = navigation.chatID {
+                Task { await DYChatWebBridge.closeOptions(web, id: id) }
+            }
+        }
     }
 
     private func readConversations() async {
@@ -1551,8 +1575,25 @@ struct DYMessagesScreen: View {
             if navigation.isChat, let row = selectedChat {
                 let author: DYAweme.Author? = row.kind == 1 && !(row.sec ?? "").isEmpty
                     ? .init(name: row.name, avatar: row.avatar, secUid: row.sec) : nil
-                DYChatHeader(row: row, maximumWidth: max(160, messageSize.width - (sidebarVisible ? sidebarWidth : 0) - 24),
-                    onProfile: author.map { target in { chatAuthor = target } })
+                let paneWidth = messageSize.width - (sidebarVisible ? sidebarWidth : 0)
+                let headerWidth = usesCompactChatHeader ? max(0, paneWidth - 136) : max(160, paneWidth - 24)
+                HStack(spacing: 8) {
+                    if usesCompactChatHeader {
+                        detailBackButton
+                            .buttonStyle(.plain)
+                            .glassEffect(.regular.interactive(), in: .circle)
+                    }
+                    DYChatHeader(row: row, maximumWidth: headerWidth,
+                        onProfile: author.map { target in { chatAuthor = target } })
+                    if usesCompactChatHeader {
+                        Spacer(minLength: 0)
+                        chatOptionsButton()
+                            .labelStyle(.iconOnly)
+                            .buttonStyle(.plain)
+                            .frame(width: 44, height: 44)
+                            .glassEffect(.regular.interactive(), in: .circle)
+                    }
+                }
                 .padding(12)
                 .padding(.top, messageTopInset)
             }
@@ -1770,31 +1811,13 @@ struct DYMessagesScreen: View {
             railItem(.fans, icon: "person", title: "粉丝", badge: counts[DYNoticeGroup.fans.rawValue] ?? 0)
             railItem(.system, icon: "bell", title: "系统", badge: counts[DYNoticeGroup.system.rawValue] ?? 0)
             railItem(.stranger, icon: "person.crop.circle.badge.questionmark", title: "陌生人", badge: strangerBadge)
-            if navigation.isChat { chatMoreRailButton }
+            if navigation.isChat { chatOptionsButton(rail: true) }
         }
         .padding(.vertical, 8)
         .frame(width: Self.railWidth)
         .glassEffect(.regular, in: .capsule)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("douyin.messages.rail")
-    }
-
-    private var chatMoreRailButton: some View {
-        railButton(icon: "ellipsis", title: "更多", selected: showChatOptions, badge: 0,
-                   id: "douyin.messages.more") { showChatOptions = true }
-            .popover(isPresented: $showChatOptions) {
-                if let web = chatModel.web, let id = navigation.chatID {
-                    DYChatOptionsPopover(web: web, conversationID: id) {
-                        Task { await readConversations() }
-                    }
-                    .presentationCompactAdaptation(.popover)
-                }
-            }
-            .onChange(of: showChatOptions) { _, showing in
-                if !showing, let web = chatModel.web, let id = navigation.chatID {
-                    Task { await DYChatWebBridge.closeOptions(web, id: id) }
-                }
-            }
     }
 
     private var rootBackButton: some View {
@@ -2783,8 +2806,11 @@ enum DYChatOpener {
     [class*="componentsRightPanelwrapper"] { box-sizing:border-box!important; width:100%!important; max-width:none!important; flex:1!important; min-width:0!important; min-height:0!important; height:100%!important; background:transparent!important; }
     [class*="RightPanelHeaderconvHeader"] { display:none!important; }
     [class*="componentsRightPanelnotHeaderArea"] { position:relative!important; flex:1!important; min-height:0!important; background:transparent!important; }
+    [class*="messageMessageListwrapper"], [class*="messageMessageListlist"] { box-sizing:border-box!important; min-width:0!important; max-width:100%!important; }
     [class*="messageMessageListwrapper"] { flex:1!important; min-height:0!important; height:100%!important; background:transparent!important; }
-    [class*="messageMessageListlist"] { box-sizing:border-box!important; padding-top:var(--dd-header-inset,72px)!important; padding-bottom:var(--dd-composer-inset,100px)!important; scroll-padding-top:var(--dd-header-inset,72px); scroll-padding-bottom:var(--dd-composer-inset,100px); background:transparent!important; }
+    [class*="messageMessageListlist"] { overflow-x:hidden!important; padding-top:var(--dd-header-inset,72px)!important; padding-bottom:var(--dd-composer-inset,100px)!important; scroll-padding-top:var(--dd-header-inset,72px); scroll-padding-bottom:var(--dd-composer-inset,100px); background:transparent!important; }
+    [data-e2e="message-item"], [data-e2e="message-item"] > * { box-sizing:border-box!important; min-width:0!important; max-width:100%!important; }
+    [data-e2e="message-item"] :is([class*="MessageItemShareAweme"], [class*="MessageItemImage"], [class*="BulletBulletVideo"]) { box-sizing:border-box!important; min-width:0!important; max-width:100%!important; }
     [class*="componentsRightPanelinputArea"] { position:absolute!important; inset:auto 0 0!important; z-index:2; box-sizing:border-box!important; padding:8px 16px var(--dd-native-composer-bottom,24px)!important; background:transparent!important; border:0!important; }
     [class*="messageMsgInputcontainer"], [class*="messageMsgInputinputColumn"] { background:transparent!important; border:0!important; padding:0!important; }
     [class*="messageMsgInputinputRow"] { position:relative!important; box-sizing:border-box!important; width:100%!important; min-height:44px!important; padding:4px 12px!important; border:0!important; border-radius:999px!important; align-items:center!important; }
@@ -2905,7 +2931,8 @@ enum DYChatOpener {
               if (sibling !== e && !['HEAD','STYLE','SCRIPT','LINK','META'].includes(sibling.tagName)) sibling.classList.add('dd-chat-page-sibling');
             }
           }
-          window.__wuweiMinWidth = 320;
+          // Embedded chat fits its actual WebView, including narrow split panes.
+          window.__wuweiMinWidth = 1;
           window.__wuweiFixViewport?.();
           window.dispatchEvent(new Event('resize'));
           window.__ddOpenJS = Math.round(performance.now() - (window.__ddOpenT || performance.now()));
@@ -2921,7 +2948,7 @@ enum DYChatOpener {
         await cancelStrangerScan()
         await exclusive {
         visibleChatWeb = nil
-        _ = try? await web.evaluateJavaScript("document.getElementById('dd-chat-only')?.remove(); document.querySelectorAll('.dd-chat-ancestor').forEach(e=>e.classList.remove('dd-chat-ancestor')); document.querySelectorAll('.dd-chat-page-sibling').forEach(e=>e.classList.remove('dd-chat-page-sibling')); window.__ddNativeChatID=null; delete document.documentElement.dataset.ddNativeComposer; document.querySelectorAll('[class*=messageMsgInputinputRow]').forEach(e=>e.removeAttribute('aria-hidden')); document.querySelectorAll('[class*=messageMsgInputinputRow] [contenteditable]').forEach(e=>e.removeAttribute('inputmode')); true")
+        _ = try? await web.evaluateJavaScript("document.getElementById('dd-chat-only')?.remove(); document.querySelectorAll('.dd-chat-ancestor').forEach(e=>e.classList.remove('dd-chat-ancestor')); document.querySelectorAll('.dd-chat-page-sibling').forEach(e=>e.classList.remove('dd-chat-page-sibling')); window.__ddNativeChatID=null; delete window.__wuweiMinWidth; window.__wuweiFixViewport?.(); delete document.documentElement.dataset.ddNativeComposer; document.querySelectorAll('[class*=messageMsgInputinputRow]').forEach(e=>e.removeAttribute('aria-hidden')); document.querySelectorAll('[class*=messageMsgInputinputRow] [contenteditable]').forEach(e=>e.removeAttribute('inputmode')); true")
         if collapseStrangerPanel { await collapseStranger(web) }
         }
     }

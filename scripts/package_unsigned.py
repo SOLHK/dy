@@ -24,7 +24,7 @@ def main():
         info = plistlib.load(stream)
     if info.get('DTPlatformName') != 'iphoneos':
         parser.error('Only an iPhoneOS device build can be packaged, not a simulator build.')
-    name = f"DyZheye-{info['CFBundleShortVersionString']}-build{info['CFBundleVersion']}-unsigned.ipa"
+    name = f"DY-{info['CFBundleShortVersionString']}-build{info['CFBundleVersion']}-unsigned.ipa"
     args.output.mkdir(parents=True, exist_ok=True)
     output = args.output.resolve() / name
     if output.exists() or output.with_suffix('.ipa.sha256').exists():

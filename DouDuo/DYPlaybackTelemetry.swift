@@ -1,6 +1,6 @@
 import AVFoundation
 
-/// 正式包也写的播放诊断（进 Documents/ddlog.txt，走 DYLiveModel.log）：
+/// 正式包也保留的播放诊断（走 DYLiveModel.log，在设置里导出）：
 /// - DDSTARTUP：划到这条后多久画面真正动起来，划到那一刻是否就绪 / 缓冲了几秒 / 是否本地文件
 /// - DDSTALL：播放中卡住（timeControlStatus 进入 waiting）到恢复用了多久，以及当时缓冲余量
 /// 每页一个实例，页面变为当前时 begin，离开时 end（end 会把未结束的卡顿也记下）。

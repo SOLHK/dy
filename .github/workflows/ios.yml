@@ -34,6 +34,15 @@ jobs:
           python3 scripts/test_classic_channel_navigation.py
           python3 scripts/test_session_guard.py
           python3 scripts/test_saver_default.py
+          python3 scripts/test_settings_layout.py
+          python3 scripts/test_menu_policy.py
+          python3 scripts/test_rail_alignment.py
+          python3 scripts/test_storage_scan.py
+          python3 scripts/test_offline_retention.py
+          swiftc -swift-version 5 -parse-as-library \
+            DouDuo/DDDiagnosticLog.swift scripts/fixtures/diagnostic-log-tests.swift \
+            -o "$RUNNER_TEMP/dy-diagnostic-tests"
+          "$RUNNER_TEMP/dy-diagnostic-tests"
 
       - name: Fetch pinned VLCKit binary
         run: sh scripts/fetch-vlckit.sh
@@ -79,7 +88,7 @@ jobs:
           [ipa] = (Path(os.environ['RUNNER_TEMP']) / 'dy-ipa').glob('*.ipa')
           with ZipFile(ipa) as archive:
               info = plistlib.loads(archive.read('Payload/DouDuo.app/Info.plist'))
-          expected = {'CFBundleDisplayName': '抖音折页', 'CFBundleIdentifier': 'com.solhk.dy'}
+          expected = {'CFBundleDisplayName': '抖音', 'CFBundleIdentifier': 'com.solhk.dy'}
           for key, value in expected.items():
               if info.get(key) != value:
                   raise SystemExit(f'{key}: expected {value!r}, got {info.get(key)!r}')
@@ -89,7 +98,18 @@ jobs:
       - name: Upload unsigned IPA and SHA-256
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: DyZheye-unsigned
+          name: DY-unsigned
           path: ${{ runner.temp }}/dy-ipa
           if-no-files-found: error
           compression-level: 0
+
+      - name: Check compact chat layout in Simulator
+        run: |
+          xcodebuild test -quiet \
+            -project DouDuo.xcodeproj \
+            -scheme DouDuo \
+            -destination 'platform=iOS Simulator,name=iPhone 17,OS=27.2' \
+            -derivedDataPath "$RUNNER_TEMP/dy-build" \
+            -parallel-testing-enabled NO \
+            -only-testing:DouDuoUITests/DouDuoUITests/testSimpleMessagesCoverUsesFullWidthChat \
+            CODE_SIGNING_ALLOWED=NO

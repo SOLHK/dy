@@ -720,6 +720,46 @@ final class DouDuoUITests: XCTestCase {
         try verifyMessageGlassLayoutAndActions(mode: "classic")
     }
 
+    func testSimpleMessagesCoverUsesFullWidthChat() throws {
+        guard #available(iOS 27.1, *) else { throw XCTSkip("Requires the current message layout") }
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchEnvironment = ["DOUDUO_CHROME_MODE": "rail", "DOUDUO_HASHTAG_FIXTURE": "1", "DOUDUO_MESSAGE_FIXTURE": "1"]
+        app.launchArguments += ["-douyin_muted_v1", "YES", "-douyin_autoplay_v1", "NO"]
+        addTeardownBlock { app.terminate() }
+        app.launch()
+
+        let window = app.windows.firstMatch
+        guard window.frame.width < 560 else { throw XCTSkip("Requires a compact-width iPhone") }
+        let feedMenu = app.buttons["douyin.module.menu"].firstMatch
+        XCTAssertTrue(feedMenu.waitForExistence(timeout: 10))
+        feedMenu.tap()
+        app.buttons["douyin.module.messages"].firstMatch.tap()
+        let listRail = app.buttons["douyin.messages.rail.interactive"].firstMatch
+        XCTAssertTrue(listRail.waitForExistence(timeout: 10))
+        let row = app.buttons.matching(identifier: "douyin.conversation.row").firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 15))
+        row.tap()
+
+        let chat = app.descendants(matching: .any)["douyin.messages.chat.detail"].firstMatch
+        let editor = app.textViews["douyin.messages.composer.editor"].firstMatch
+        XCTAssertTrue(editor.waitForExistence(timeout: 10))
+        XCTAssertTrue(chat.exists)
+        XCTAssertEqual(chat.frame.width, window.frame.width, accuracy: 4)
+        XCTAssertFalse(listRail.exists)
+        XCTAssertFalse(feedMenu.exists)
+        let back = app.buttons["douyin.messages.back"].firstMatch
+        let more = app.buttons["douyin.messages.more"].firstMatch
+        XCTAssertTrue(back.isHittable && more.isHittable)
+        XCTAssertEqual(back.frame.midY, more.frame.midY, accuracy: 2)
+
+        back.tap()
+        XCTAssertTrue(listRail.waitForExistence(timeout: 5))
+        app.buttons["douyin.messages.close"].firstMatch.tap()
+        XCTAssertTrue(feedMenu.waitForExistence(timeout: 5))
+    }
+
     private func verifyMessageGlassLayoutAndActions(innerLandscape: Bool? = nil, mode: String = "duoClassic") throws {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -3515,8 +3555,6 @@ final class DouDuoUITests: XCTestCase {
         XCTAssertTrue(waitBadge(app, "1.5×", timeout: 8), "选 1.5 倍后当前视频应立刻 1.5×")
         sleep(3)
         attach(app, "quick-speed-applied")
-        let fit = app.buttons.matching(identifier: "douyin.fit").allElementsBoundByIndex.first { $0.isHittable }
-        XCTAssertNotNil(fit, "搜索下面应有铺满按钮")
     }
 
     /// 复现：滑到下一条视频后，在「更多」里改倍速，当前视频应立刻变速（看 ddlog 里的 DDRATETEST）。
@@ -3556,7 +3594,7 @@ final class DouDuoUITests: XCTestCase {
         attach(app, "second-video-rate")
     }
 
-    /// 右侧按钮栏：五个按钮水平居中对齐、竖向等距。
+    /// 右侧按钮栏水平居中对齐，带计数的按钮等距排列。
     func testRailButtonsAlignedAndEvenlySpaced() throws {
         let app = XCUIApplication()
         app.launchEnvironment["DOUDUO_CHROME_MODE"] = "duoClassic"
@@ -3571,19 +3609,16 @@ final class DouDuoUITests: XCTestCase {
             XCTAssertFalse(q.isEmpty, "\(id) 不可点")
             return q.first?.frame ?? .zero
         }
-        let ids = ["douyin.like", "douyin.comments", "douyin.collect", "douyin.search", "douyin.fit"]
+        XCTAssertFalse(app.buttons["douyin.fit"].exists, "铺满宽度开关已经移到设置")
+        let ids = ["douyin.like", "douyin.comments", "douyin.collect", "douyin.search"]
         let f = ids.map(frame)
         print("DDRAIL frames=\(f)")
         for r in f { XCTAssertEqual(r.midX, f[0].midX, accuracy: 1.0, "水平没对齐") }
-        // 有数字的三个按钮之间等距；无数字的搜索/铺满之间更紧（没有文字那一截）
+        // 有数字的三个按钮之间等距，搜索保留无数字按钮的高度。
         let pitches = zip(f, f.dropFirst()).map { $1.midY - $0.midY }
         print("DDRAIL pitches=\(pitches)")
         XCTAssertEqual(pitches[0], pitches[1], accuracy: 1.0, "赞→评论 与 评论→收藏 间距不等")
-        XCTAssertLessThan(pitches[3], pitches[0], "无文字的按钮之间应比有文字的更紧")
-        // 搜索与铺满之间的空隙 = 「图标—文字」间距那一级（约 2~12pt），不再是一整块空白
-        let gapSearchFit = f[4].minY - f[3].maxY
-        print("DDRAIL gapSearchFit=\(gapSearchFit)")
-        XCTAssertLessThanOrEqual(gapSearchFit, 12)
+        XCTAssertLessThan(f[3].height, f[2].height, "无计数的搜索按钮应更短")
         attach(app, "rail-aligned")
     }
 
@@ -4122,11 +4157,11 @@ final class DouDuoUITests: XCTestCase {
             app.buttons.matching(identifier: id).allElementsBoundByIndex.first { $0.isHittable }
         }
         let like = vis("douyin.like")!.frame
-        let fit = vis("douyin.fit")!.frame
+        let collect = vis("douyin.collect")!.frame
         let more = vis("douyin.more")!.frame
-        print("DDGEO ring=\(ring.frame) menu=\(menu.frame) like=\(like) fit=\(fit) more=\(more)")
-        // 胶囊整体：赞的上沿 - 8（内边距）= 胶囊上沿；铺满下沿 + 8 = 胶囊下沿
-        let capsuleTop = like.minY - 8, capsuleBottom = fit.maxY + 8
+        print("DDGEO ring=\(ring.frame) menu=\(menu.frame) like=\(like) collect=\(collect) more=\(more)")
+        // 胶囊边缘由第一个按钮、最后一个按钮和两端各 8pt 的内边距确定。
+        let capsuleTop = like.minY - 8, capsuleBottom = collect.maxY + 8
         let gapA = capsuleTop - ring.frame.maxY, gapB = more.minY - capsuleBottom
         print("DDGEO capsule=\(capsuleTop)...\(capsuleBottom) ringW=\(ring.frame.width) gapRingToCapsule=\(gapA) gapCapsuleToMore=\(gapB)")
         XCTAssertEqual(ring.frame.width, like.width, accuracy: 1.5, "进度环应和胶囊同宽")

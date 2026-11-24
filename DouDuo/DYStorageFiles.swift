@@ -116,7 +116,7 @@ actor DYStorageFiles {
 
     private static func category(_ path: [String]) -> Category {
         switch Array(path.prefix(3)) {
-        case ["Documents", "ddlog.txt"]:
+        case ["Documents", "ddlog.txt"], ["Library", "Application Support", DDDiagnosticLog.directoryName]:
             return .diagnostics
         case let parts where parts.starts(with: ["tmp"]):
             guard parts.count > 1 else { return .other }

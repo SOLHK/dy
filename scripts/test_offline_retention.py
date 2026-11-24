@@ -92,7 +92,8 @@ class OfflineRetentionTests(unittest.TestCase):
             executable = root / "test-offline-retention"
             subprocess.run(
                 ["swiftc", "-module-cache-path", str(root / "modules"), str(store),
-                 str(ROOT / "DouDuo" / "DYStorageFiles.swift"), str(harness), "-o", str(executable)],
+                 str(ROOT / "DouDuo" / "DYStorageFiles.swift"), str(ROOT / "DouDuo" / "DDDiagnosticLog.swift"),
+                 str(harness), "-o", str(executable)],
                 check=True, timeout=120,
             )
             subprocess.run([executable, root / "offline"], check=True, timeout=15)

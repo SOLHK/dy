@@ -1,7 +1,8 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// 完整设置页：「更多 → 设置」点进来。所有全局偏好集中在这里，菜单里不再层层嵌套。
-/// 当前视频相关的操作（转发 / 不感兴趣 / 下载 / 倍速 / 静音 / 听书 / 自动连播 / 发弹幕）和铺满宽度都在表层菜单，这里不重复。
+/// 转发、下载、倍速和发送弹幕等单条视频的操作保留在播放页。
 struct DYSettingsScreen: View {
     @AppStorage(DYCommentKeyboard.autoFocusKey) private var replyAutoKeyboard = true
     /// 打开「网页版 / 登录」：由宿主页面负责弹出网页并在关闭后重载签名页
@@ -19,6 +20,7 @@ struct DYSettingsScreen: View {
     @AppStorage(DDChromeMode.key) private var chromeMode = DDChromeMode.classic.rawValue
     // 播放
     @AppStorage(DYVideoAmbient.key) private var ambientLevel = DYVideoAmbient.defaultLevel
+    @AppStorage(DYVideoFit.preferenceKey) private var autoFit = DYVideoFit.defaultFillWidth
     @AppStorage(DYAutoPiP.storageKey) private var autoPiP = false
     // 内容
     // 老板 11-24：横竖屏筛选默认关（按抖音推荐原样播），放进「高级设置」
@@ -45,6 +47,11 @@ struct DYSettingsScreen: View {
     @AppStorage(DYDMNotificationSettings.notifyKey) private var dmNotifications = false
     @AppStorage(DYDMNotificationSettings.detailKey) private var dmDetail = false
     @State private var showNotes = false
+    @State private var logDocument: DYDiagnosticLogDocument?
+    @State private var preparingLogExport = false
+    @State private var showingLogExporter = false
+    @State private var showingLogExportMessage = false
+    @State private var logExportMessage = ""
     @AppStorage(DYWebComposer.enabledKey) private var commentViaWebUI = false
 
     /// 老板 11-24：只留 1 / 5 / 10 三档（提前备的播放器上限就是 10，再多没意义）
@@ -82,6 +89,10 @@ struct DYSettingsScreen: View {
                         }
                         .accessibilityIdentifier("settings.ambient")
                     }
+                    row(.videoFit) {
+                        Toggle(DYVideoFit.title, isOn: $autoFit)
+                            .accessibilityIdentifier(DYVideoFit.settingsIdentifier)
+                    }
                     row(.launchMuted) {
                         Toggle("打开时默认静音", isOn: $launchMuted).accessibilityIdentifier("settings.launch.muted")
                     }
@@ -98,7 +109,7 @@ struct DYSettingsScreen: View {
                 } header: {
                     Text("播放与弹幕")
                 } footer: {
-                    Text("倍速、静音、听书、自动连播、铺满宽度、发弹幕在播放页菜单里。")
+                    Text("倍速、静音、听书、自动连播、发弹幕在播放页菜单里。")
                 }
 
                 Section {
@@ -207,6 +218,20 @@ struct DYSettingsScreen: View {
                 }
 
                 Section {
+                    Button {
+                        Task { await exportLogs() }
+                    } label: {
+                        Label(preparingLogExport ? "正在准备日志…" : "导出日志", systemImage: "square.and.arrow.up")
+                    }
+                    .disabled(preparingLogExport)
+                    .accessibilityIdentifier("settings.diagnostics.export")
+                } header: {
+                    Text("诊断")
+                } footer: {
+                    Text("导出最近一小时的应用诊断记录。")
+                }
+
+                Section {
                     LabeledContent("当前版本", value: DDAppVersion.display)
                         .accessibilityIdentifier("douyin.about.version")
                     Button {
@@ -238,7 +263,42 @@ struct DYSettingsScreen: View {
                 }
             }
             .sheet(item: $info) { DYSettingInfoSheet(info: $0) }
+            .fileExporter(
+                isPresented: $showingLogExporter,
+                document: logDocument,
+                contentType: .plainText,
+                defaultFilename: logDocument?.filename
+            ) { result in
+                logDocument = nil
+                if case .failure = result {
+                    logExportMessage = "日志文件保存失败，请重试。"
+                    showingLogExportMessage = true
+                }
+            }
+            .alert("导出日志", isPresented: $showingLogExportMessage) {
+                Button("确定", role: .cancel) {}
+            } message: {
+                Text(logExportMessage)
+            }
         }
+    }
+
+    @MainActor
+    private func exportLogs() async {
+        guard !preparingLogExport else { return }
+        preparingLogExport = true
+        defer { preparingLogExport = false }
+        do {
+            if let data = try await DDDiagnosticLog.exportRecent() {
+                logDocument = DYDiagnosticLogDocument(data: data)
+                showingLogExporter = true
+                return
+            }
+            logExportMessage = "最近一小时暂无可导出的诊断记录。"
+        } catch {
+            logExportMessage = "诊断记录读取失败，请重试。"
+        }
+        showingLogExportMessage = true
     }
 
     /// 高级设置：极少调的开关（老板 11-24 归拢）
@@ -333,7 +393,7 @@ struct DYSettingsScreen: View {
 
 /// 每个设置项的 ⓘ 说明：开 / 关分别会怎样（老板 11-24）
 enum DYSettingInfo: String, Identifiable {
-    case chrome, ambient, launchMuted, danmaku, danmakuDensity, keywords, hideSeen, feedLive, feedAds, feedProduct
+    case chrome, ambient, videoFit, launchMuted, danmaku, danmakuDensity, keywords, hideSeen, feedLive, feedAds, feedProduct
     case wifiSaver, cellSaver, cacheCount, dmNotify, dmDetail
     case landscapeOnly, portraitMix, dedupe, autoPiP, replyKeyboard, webComment, streaming
     var id: String { rawValue }
@@ -342,6 +402,7 @@ enum DYSettingInfo: String, Identifiable {
         switch self {
         case .chrome: "界面模式"
         case .ambient: "环境光"
+        case .videoFit: DYVideoFit.title
         case .launchMuted: "打开时默认静音"
         case .danmaku: "显示弹幕"
         case .danmakuDensity: "弹幕密度"
@@ -370,7 +431,8 @@ enum DYSettingInfo: String, Identifiable {
         switch self {
         case .chrome: [("说明", "四种播放页布局：默认、简洁、极简、经典。只改按钮和信息怎么摆，不影响推荐和播放。")]
         case .ambient: [("说明", "视频没铺满屏幕时，四周的空白跟着画面颜色变化。分关 / 亮 / 中 / 暗 / 很暗；选「关」就是纯黑边。")]
-        case .launchMuted: [("开", "每次打开 DouDuo 都先静音，并提示「已静音播放」；不会打断你正在放的音乐。"), ("关", "打开就带声音播放。")]
+        case .videoFit: [("开（默认）", "画面和屏幕同向时铺满，边缘可能被裁切。"), ("关", "显示完整画面，周围保留边距。")]
+        case .launchMuted: [("开", "每次打开应用都先静音，并提示「已静音播放」；不会打断你正在放的音乐。"), ("关", "打开就带声音播放。")]
         case .danmaku: [("开", "视频上方 1/3 区域显示弹幕。"), ("关", "不显示弹幕，发弹幕仍在播放页菜单里。")]
         case .danmakuDensity: [("说明", "稀疏：最多 2 行、每秒 1 条；标准：4 行、每秒 2 条；密集：6 行、每秒 4 条。")]
         case .keywords: [("说明", "标题或话题标签里含有这个词就不推，例如屏蔽「美食」也会挡住 #美食推荐。只作用于推荐页，搜索、关注、作者主页不受影响。")]
@@ -386,11 +448,30 @@ enum DYSettingInfo: String, Identifiable {
         case .landscapeOnly: [("开", "手机横着拿或展开大屏时，推荐只放横屏视频。"), ("关（默认）", "横着看也按抖音推荐原顺序播放，竖屏视频会带黑边。")]
         case .portraitMix: [("开", "竖着看时推荐里约七成是竖屏视频（抖音网页推荐本身竖屏只有一到三成）。"), ("关（默认）", "按抖音推荐原顺序播放。")]
         case .dedupe: [("开", "10 秒内内容相同的弹幕只显示一次。"), ("关", "重复弹幕照常刷屏。")]
-        case .autoPiP: [("开", "离开 DouDuo 时，当前短视频尝试进入系统画中画（系统决定能否启动）。"), ("关（默认）", "离开就暂停；播放页菜单里开了「听书模式」时继续出声。")]
+        case .autoPiP: [("开", "离开应用时，当前短视频尝试进入系统画中画（系统决定能否启动）。"), ("关（默认）", "离开就暂停；播放页菜单里开了「听书模式」时继续出声。")]
         case .replyKeyboard: [("开（默认）", "点一条评论回复它时，直接弹出键盘。"), ("关", "点评论只选中要回复的人，要再点输入框才弹键盘。")]
         case .webComment: [("开", "文字评论和回复填进抖音网页自己的评论框再点发送，和手动发一样，每条多等几秒；带图评论仍按原方式发。"), ("关（默认）", "直接调用接口发送，更快。")]
         case .streaming: [("开（默认）", "视频看到哪下到哪，划走就停；看完的自动存成完整文件，下次可离线播。两个省流量开关依赖它。"), ("关", "老办法：后面几条整条下载后再播，流量最多，省流量开关失效。一般不需要关。")]
         }
+    }
+}
+
+private struct DYDiagnosticLogDocument: FileDocument {
+    static let readableContentTypes: [UTType] = [.plainText]
+    let data: Data
+    let filename = "DY-logs-" + Date().ISO8601Format().replacingOccurrences(of: ":", with: "-")
+
+    init(data: Data) { self.data = data }
+
+    init(configuration: ReadConfiguration) throws {
+        guard let contents = configuration.file.regularFileContents else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        data = contents
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: data)
     }
 }
 

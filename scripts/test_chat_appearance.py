@@ -2,6 +2,7 @@
 """Exercise production IM CSS/bridge in a disconnected, cookie-free HTML fixture."""
 import html as html_module
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -14,12 +15,12 @@ def raw(source, name):
     assert found, name
     return found.group(1)
 
-messages = (ROOT / 'DouDuo/DouyinMessages.swift').read_text()
-bridge = (ROOT / 'DouDuo/DYChatWebBridge.swift').read_text()
-fixture = raw((ROOT / 'DouDuo/DYMessageFixture.swift').read_text(), 'html')
+messages = (ROOT / 'DouDuo/DouyinMessages.swift').read_text(encoding='utf-8')
+bridge = (ROOT / 'DouDuo/DYChatWebBridge.swift').read_text(encoding='utf-8')
+fixture = raw((ROOT / 'DouDuo/DYMessageFixture.swift').read_text(encoding='utf-8'), 'html')
 css = raw(messages, 'chatChromeCSS')
 helpers = raw(bridge, 'helpersJS')
-appearance = raw((ROOT / 'DouDuo/DDWebAppearance.swift').read_text(), 'bootstrap')
+appearance = raw((ROOT / 'DouDuo/DDWebAppearance.swift').read_text(encoding='utf-8'), 'bootstrap')
 # The fixture uses srcdoc, so only this local harness bypasses the production host guard.
 appearance = '\n'.join(line for line in appearance.splitlines() if 'location.hostname' not in line)
 appearance = appearance.replace(r"/^\/chat\/?$/.test(location.pathname)", "true")
@@ -51,6 +52,18 @@ runner = '''
   q('#settings').classList.remove('conversationConversationInfoopen');
   const editor=q('[contenteditable]');editor.textContent='local draft only';
   const list=q('.messageMessageListlist');list.scrollTop=80;
+  const row=document.createElement('div');
+  row.dataset.e2e='message-item';
+  row.style.cssText='display:flex;justify-content:flex-end;width:480px;min-width:420px;gap:8px';
+  row.innerHTML='<div class="MessageItemShareAweme" style="width:400px;min-width:360px">已分享的视频</div><span style="flex:0 0 32px">头像</span>';
+  list.append(row);
+  const listBounds=list.getBoundingClientRect();
+  const rowBounds=row.getBoundingClientRect();
+  const cardBounds=row.firstElementChild.getBoundingClientRect();
+  const avatarBounds=row.lastElementChild.getBoundingClientRect();
+  check(list.scrollWidth === list.clientWidth,'message history has no horizontal overflow');
+  check(rowBounds.right <= listBounds.right && cardBounds.right <= avatarBounds.left
+    && avatarBounds.right <= listBounds.right,'outgoing shared card and avatar fit within message history');
   const shot=SNAPSHOT;
   check(shot.id===window.__ddNativeChatID,'current chat snapshot');
   const composer=q('.messageMsgInputinputRow').getBoundingClientRect();
@@ -143,14 +156,16 @@ fixture = fixture.replace('</head>', '<style>' + css + '</style><script>' + appe
 fixture = fixture.replace('</body>', '<script>' + runner + '</script></body>')
 with tempfile.TemporaryDirectory(prefix='douduo-chat-css-') as directory:
     scratch = pathlib.Path(directory)
-    for width, height in [(336, 600), (720, 600)]:
+    browser = os.environ.get('DOUDUO_TEST_BROWSER', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
+    for width, height in [(310, 600), (430, 750), (720, 600)]:
         page = scratch / f'fixture-{width}.html'
         page.write_text('<!doctype html><pre id="result"></pre><script>onmessage=e=>document.querySelector("pre").textContent=JSON.stringify(e.data)</script>'
-                        + f'<iframe style="border:0;width:{width}px;height:{height}px" srcdoc="{html_module.escape(fixture, quote=True)}"></iframe>')
-        result = subprocess.run(['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '--headless=new',
+                        + f'<iframe style="border:0;width:{width}px;height:{height}px" srcdoc="{html_module.escape(fixture, quote=True)}"></iframe>',
+                        encoding='utf-8')
+        result = subprocess.run([browser, '--headless=new',
             '--disable-gpu', '--no-sandbox', '--no-proxy-server', '--disable-background-networking',
             f'--user-data-dir={scratch}/chrome-{width}', '--window-size=1000,900', '--virtual-time-budget=10000',
-            '--dump-dom', page.as_uri()], capture_output=True, text=True, timeout=45, check=True)
+            '--dump-dom', page.as_uri()], capture_output=True, encoding='utf-8', errors='replace', timeout=45, check=True)
         match = re.search(r'<pre id="result">(.*?)</pre>', result.stdout, re.S)
         assert match and match.group(1), result.stderr[-1500:] + result.stdout[-1000:]
         value = json.loads(html_module.unescape(match.group(1)))

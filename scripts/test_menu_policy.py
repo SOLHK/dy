@@ -174,11 +174,15 @@ class MenuPolicyTests(unittest.TestCase):
             self.assertIn(section, screen)
         idx = [screen.index(t) for t in order]
         self.assertEqual(idx, sorted(idx), "设置分组顺序")
-        # 2026-11-14 老板定：表层菜单已有的（静音 / 铺满 / 听书 / 自动连播）设置页不重复；短视频占比删除
+        # 设置页接管原侧栏铺满按钮，静音、听书与自动连播继续留在快捷菜单里。
         for gone in ('"douyin_autoplay_v1"', '"douyin_muted_v1"', '"douyin_autofit_v1"', '"douyin_bg_play_v1"',
-                     "short_ratio", "短视频占比", "ratioChoices", 'Toggle("静音"', 'Toggle("自动连播"', 'Toggle("铺满宽度',
-                     'Toggle("听书模式', "$autoNext", "$muted", "$autoFit", "$backgroundPlay"):
+                     "short_ratio", "短视频占比", "ratioChoices", 'Toggle("静音"', 'Toggle("自动连播"',
+                     'Toggle("听书模式', "$autoNext", "$muted", "$backgroundPlay"):
             self.assertNotIn(gone, screen)
+        self.assertIn("@AppStorage(DYVideoFit.preferenceKey)", screen)
+        self.assertIn("Toggle(DYVideoFit.title, isOn: $autoFit)", screen)
+        self.assertIn(".accessibilityIdentifier(DYVideoFit.settingsIdentifier)", screen)
+        self.assertNotIn('"douyin.fit"', FEED)
         for token in ("DYVideoAmbient.key", '"douyin_wide_landscape_v1"', 'Toggle("横屏时只放横屏内容"',
                       "DYHashtagFilterScreen(currentTags: [], embedded: true)",
                       '"douyin_danmaku_v1"', "DYDanmakuPolicy.densityKey", "DYDanmakuPolicy.deduplicateKey",

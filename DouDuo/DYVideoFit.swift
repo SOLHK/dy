@@ -7,7 +7,8 @@ enum DYVideoFit {
     static let preferenceKey = "douyin_autofit_v1"
     static let title = "铺满宽度"
     static let moreIdentifier = "douyin.quick.fit"
-    /// 与原来的 @AppStorage 默认值一致。本热修不改默认缩放策略。
+    static let settingsIdentifier = "douyin.settings.fit"
+    /// 与原来的 @AppStorage 默认值一致。
     static let defaultFillWidth = true
     /// 松手后临时捏合缩放必须回到 1，模式只由 fillWidth 决定。
     static let releasedScale: CGFloat = 1
@@ -21,7 +22,7 @@ enum DYVideoFit {
         case classicMore
         /// 经典模式长按打开的视频设置。
         case classicOptions
-        /// 全局设置页不重复放播放页开关。
+        /// 所有界面模式共用的全局设置页。
         case settings
     }
 
@@ -32,10 +33,8 @@ enum DYVideoFit {
 
     static func showsLabeledControl(on surface: Surface) -> Bool {
         switch surface {
-        // 维护者定：默认/简洁/极简右侧按钮栏「收藏」下面已有铺满按钮，「更多」里不再重复；
-        // 只有经典模式（顶栏更多 + 长按面板）放这个开关
-        case .classicMore, .classicOptions: true
-        case .upstreamMore, .settings: false
+        case .classicMore, .classicOptions, .settings: true
+        case .upstreamMore: false
         }
     }
 

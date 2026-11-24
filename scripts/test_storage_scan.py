@@ -24,7 +24,7 @@ import Foundation
         let usage = try await scanner.scan(home: home, bundle: bundle)
         precondition(usage.app >= 32_768, "App bundle must stay visible")
         precondition(usage.categories[.video, default: 0] >= 65_536, "Video cache must stay visible")
-        precondition(usage.categories[.diagnostics, default: 0] >= 8_192, "Documents must stay visible")
+        precondition(usage.categories[.diagnostics, default: 0] >= 16_384, "Legacy and rolling diagnostics must be counted")
         precondition(usage.categories[.images, default: 0] >= 16_384, "Readable Library siblings must stay visible")
         precondition(usage.categories[.offline, default: 0] >= 16_384, "Manual downloads must be counted separately")
         precondition(usage.categories[.web, default: 0] >= 24_576, "App-scoped URL cache must count as web data")
@@ -46,7 +46,8 @@ class StorageScanTests(unittest.TestCase):
             executable = root / "test-storage-scan"
             subprocess.run(
                 ["swiftc", "-module-cache-path", str(root / "modules"),
-                 str(ROOT / "DouDuo" / "DYStorageFiles.swift"), str(swift), "-o", str(executable)],
+                 str(ROOT / "DouDuo" / "DYStorageFiles.swift"), str(ROOT / "DouDuo" / "DDDiagnosticLog.swift"),
+                 str(swift), "-o", str(executable)],
                 check=True, timeout=120,
             )
             for relative, size in [
@@ -54,6 +55,7 @@ class StorageScanTests(unittest.TestCase):
                 ("data/Library/Caches/dd-videos/movie", 65_536),
                 ("data/Library/Caches/ImageCache/image", 16_384),
                 ("data/Documents/ddlog.txt", 8_192),
+                ("data/Library/Application Support/DyDiagnostics/2.log", 8_192),
                 ("data/Library/Application Support/dd-offline-videos/movie/video.mp4", 16_384),
                 ("data/Library/Caches/me.rrmm.douduo/dd-url-cache/entry", 24_576),
                 ("data/Library/Caches/me.rrmm.douduo/com.apple.metal/file", 4096),
