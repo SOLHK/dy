@@ -898,7 +898,7 @@ struct DYMessagesScreen: View {
             // 内容区只让出栏本身占的宽度（不再被安全区 + 栏宽挤两次）。
             // 横屏时系统竖栏会被放到左边（toolbarVerticalEdge = .leading）；老板要右侧栏「横屏也一样」→ 一律放右边
             if isClassicChrome {
-                messagePanes
+                messagePanes()
             } else {
             DYAdaptiveActionRail { systemEdge in
                 GeometryReader { safe in
@@ -912,7 +912,7 @@ struct DYMessagesScreen: View {
                     // 内容区右侧要让出：栏宽 + 栏外留白 − 系统竖栏本身（那一列内容区本来就不占）
                     let reserve = usesCompactChatHeader ? 0 : max(0, Self.railWidth + outer * 2 - column)
                     ZStack(alignment: edge == .leading ? .leading : .trailing) {
-                        messagePanes
+                        messagePanes(compactChatWidth: horizontalSizeClass == .compact ? safe.size.width : nil)
                             .padding(edge == .leading ? .leading : .trailing, reserve)
                             .opacity(showingMine ? 0 : 1)
                             .allowsHitTesting(!showingMine)
@@ -944,7 +944,7 @@ struct DYMessagesScreen: View {
     }
 
     @available(iOS 27.1, *)
-    private var messagePanes: some View {
+    private func messagePanes(compactChatWidth: CGFloat? = nil) -> some View {
         Group {
             GeometryReader { geo in
                 let split = horizontalSizeClass == .regular && DYMessageSidebarLayout.showsSplit(in: geo.size, window: chatModel.windowSize)
@@ -983,7 +983,7 @@ struct DYMessagesScreen: View {
                             .frame(width: detailWidth, height: geo.size.height)
                             .padding(.leading, listWidth)
                     }
-                    detailPane
+                    detailPane(compactChatWidth: compactChatWidth)
                         .frame(width: detailWidth, height: geo.size.height)
                         .clipped()
                         // Place the pane in layout coordinates. A visual offset
@@ -1163,7 +1163,7 @@ struct DYMessagesScreen: View {
                     .opacity(navigation.hasDetail ? 0 : 1)
                     .allowsHitTesting(!navigation.hasDetail)
                     .accessibilityHidden(navigation.hasDetail)
-                detailPane
+                detailPane()
                     .frame(width: geo.size.width, height: geo.size.height)
                     .opacity(navigation.hasDetail ? 1 : 0.001)
                     .allowsHitTesting(navigation.hasDetail)
@@ -1508,7 +1508,7 @@ struct DYMessagesScreen: View {
     }
 
     /// Lists retain identity/scroll position, while the chat WKWebView stays mounted.
-    private var detailPane: some View {
+    private func detailPane(compactChatWidth: CGFloat? = nil) -> some View {
         ZStack {
             ForEach([DYMsgRoute.interactive, .fans, .system, .stranger], id: \.self) { route in
                 if visitedRoutes.contains(route) {
@@ -1535,6 +1535,9 @@ struct DYMessagesScreen: View {
                 }
             }
             chatPane
+                // Keep the parked chat at its destination width so cached snapshots
+                // use the same WebView dimensions before and after opening.
+                .frame(width: compactChatWidth)
                 .offset(x: !sidebarVisible && !reduceMotion && navigation.category != nil && !navigation.isChat
                     ? (layoutDirection == .rightToLeft ? -1 : 1) * messageSize.width : 0)
                 .opacity(navigation.isChat ? 1 : 0.001)
