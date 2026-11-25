@@ -629,6 +629,10 @@ struct DYMessagesScreen: View {
 
     var body: some View {
         let _ = DYMessageOpenProbe.built()
+        messageLifecycle
+    }
+
+    private var messageNavigation: some View {
         NavigationStack {
             GeometryReader { safeGeometry in
                 messageContent
@@ -711,6 +715,22 @@ struct DYMessagesScreen: View {
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
         }
+    }
+
+    private var actionErrorPresented: Binding<Bool> {
+        Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })
+    }
+
+    private var conversationDeletionPresented: Binding<Bool> {
+        Binding(get: { deletingConversation != nil }, set: { if !$0 { deletingConversation = nil } })
+    }
+
+    private var messageDeletionPresented: Binding<Bool> {
+        Binding(get: { deletingMessageToken != nil }, set: { if !$0 { deletingMessageToken = nil } })
+    }
+
+    private var messageAlerts: some View {
+        messageNavigation
         .overlay {
             if openingChat == "forwarded-share", let forwardedShare {
                 VStack(spacing: 12) {
@@ -731,23 +751,27 @@ struct DYMessagesScreen: View {
             await openSharedConversation(forwardedShare)
             if !Task.isCancelled { handledShareRequest = request }
         }
-        .alert("操作未完成", isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })) {
+        .alert("操作未完成", isPresented: actionErrorPresented) {
             Button("好", role: .cancel) { actionError = nil }
         } message: { Text(actionError ?? "请稍后重试") }
-        .alert("删除这条会话？", isPresented: Binding(get: { deletingConversation != nil }, set: { if !$0 { deletingConversation = nil } })) {
+        .alert("删除这条会话？", isPresented: conversationDeletionPresented) {
             Button("删除", role: .destructive) {
                 if let row = deletingConversation { Task { await changeConversation(row, action: .delete) } }
                 deletingConversation = nil
             }
             Button("取消", role: .cancel) { deletingConversation = nil }
         } message: { Text("会话将从消息列表移除。") }
-        .alert("删除这条消息？", isPresented: Binding(get: { deletingMessageToken != nil }, set: { if !$0 { deletingMessageToken = nil } })) {
+        .alert("删除这条消息？", isPresented: messageDeletionPresented) {
             Button("删除", role: .destructive) {
                 if let token = deletingMessageToken { Task { await deleteChatMessage(token) } }
                 deletingMessageToken = nil
             }
             Button("取消", role: .cancel) { deletingMessageToken = nil }
         }
+    }
+
+    private var messageObservation: some View {
+        messageAlerts
         .task(id: navigation.chatID) {
             guard let id = navigation.chatID else { return }
             while !Task.isCancelled, navigation.chatID == id {
@@ -782,7 +806,10 @@ struct DYMessagesScreen: View {
         }
         .onAppear { DYMessageOpenProbe.appeared() }
         .task { await loadRoot() }
-        .task {
+        .task { installChatEventHandlers() }
+    }
+
+    private func installChatEventHandlers() {
             // 网页聊天页 → App：点分享视频卡片跳原生播放（DouyinWebView 的 ddMsg 通道）
             if #available(iOS 27.1, *) { DYLiveModel.log("DDMSG layout=resizable") } else { DYLiveModel.log("DDMSG layout=legacy") }
             // 聊天里点对方头像/昵称：网页会整页跳 /user/<sec>（网页版主页）→ 拦下改开原生作者主页
@@ -848,7 +875,10 @@ struct DYMessagesScreen: View {
                     break
                 }
             }
-        }
+    }
+
+    private var messageLifecycle: some View {
+        messageObservation
         .dyPhotoViewer($photo)
         .fullScreenCover(item: $videoPlay) { p in
             // 信息里点开的分享视频：一关掉就把它的声音彻底收掉（见 DYListPlayer.hardStopOnDismiss）
